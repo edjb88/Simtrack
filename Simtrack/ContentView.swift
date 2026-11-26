@@ -106,3 +106,23 @@ class UDPClient {
     }
 }
 
+// Dentro de la clase Coordinator, en TrackingView.swift
+
+// 1. Añade una instancia del cliente UDP
+let udpClient = UDPClient(host: "172.20.10.12", port: 4242) // 
+
+// 2. Dentro de renderer(_:didUpdate:for:), después de obtener la transformación:
+func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
+    guard let faceAnchor = anchor as? ARFaceAnchor else { return }
+    let transform = faceAnchor.transform
+    
+    // Extraer posición
+    let position = SCNVector3(transform.columns.3.x, transform.columns.3.y, transform.columns.3.z)
+    
+    // Extraer ángulos de Euler (necesitas una función de ayuda, te la doy abajo)
+    let euler = transform.eulerAngles
+    
+    // Enviar por UDP
+    udpClient.send(pose: (x: position.x, y: position.y, z: position.z,
+                           yaw: euler.yaw, pitch: euler.pitch, roll: euler.roll))
+}
