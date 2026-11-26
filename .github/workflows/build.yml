@@ -35,18 +35,23 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let log = 'sin build.log';
+            let log = '';
             try {
               log = fs.readFileSync('build.log', 'utf8');
             } catch (error) {
               log = 'no se pudo leer build.log: ' + error.message;
             }
-            const tail = log.slice(-60000);
+            const lines = log.split('\n');
+            const errors = lines.filter(l => l.includes('error:')).slice(0, 40);
+            const body = '### Errores de compilacion\n\n```\n' +
+              (errors.length ? errors.join('\n') : 'sin lineas con "error:"') +
+              '\n```\n\nUltimas lineas:\n\n```\n' +
+              lines.slice(-15).join('\n') + '\n```';
             await github.rest.repos.createCommitComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               commit_sha: context.sha,
-              body: 'Log de compilacion:\n\n```\n' + tail + '\n```'
+              body: body.slice(0, 65000)
             });
 
       - name: Diagnostico del binario
