@@ -561,10 +561,25 @@ struct ContentView: View {
         }
         .onAppear {
             PCDiscovery.shared.start()
+
+            // Sin esto iOS bloquea la pantalla al rato y ARKit deja de enviar.
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .active {
+            switch phase {
+
+            case .active:
+                UIApplication.shared.isIdleTimerDisabled = true
                 PCDiscovery.shared.restart()
+
+            case .inactive, .background:
+                UIApplication.shared.isIdleTimerDisabled = false
+
+            @unknown default:
+                break
             }
         }
     }

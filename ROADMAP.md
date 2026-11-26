@@ -2,14 +2,16 @@
 
 Backlog de la app iOS. Nada de aquí está implementado todavía.
 
-## Siguiente build (aparcado hasta la próxima tanda de cambios)
+## Hecho recientemente
 
-- [ ] **Mantener la pantalla del iPhone encendida** mientras la app está en
-      primer plano a pantalla de tracking/dashboard.
-      - Implementación prevista: `UIApplication.shared.isIdleTimerDisabled = true`
-        al arrancar y volver a `false` al pasar a segundo plano / cerrar.
-      - Motivo: con ARKit y el dashboard abiertos el móvil acaba bloqueándose
-        y deja de enviar pose (iOS no ejecuta ARKit en segundo plano).
+- [x] **Dashboard superpuesto al tracking**: `TrackingView` ya no se desmonta
+      al cambiar de pestaña (barra de pestañas propia + capas superpuestas),
+      así ARKit sigue enviando la pose con el dashboard abierto.
+- [x] **Pantalla del iPhone siempre encendida** mientras la app está en primer
+      plano (`isIdleTimerDisabled`), para que iOS no corte ARKit al bloquearse
+      el móvil.
+
+## Siguiente build (aparcado hasta la próxima tanda de cambios)
 
 ## Fase 2 · auriculares
 
