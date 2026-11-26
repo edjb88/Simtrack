@@ -128,3 +128,16 @@ func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor:
     udpClient.send(pose: (x: position.x, y: position.y, z: position.z,
                            yaw: euler.yaw, pitch: euler.pitch, roll: euler.roll))
 }
+
+extension simd_float4x4 {
+    var eulerAngles: SIMD3<Float> {
+        let pitch = asin(
+            max(-1.0, min(1.0, -columns.2.y))
+        )
+
+        let yaw = atan2(columns.2.x, columns.2.z)
+        let roll = atan2(columns.1.x, columns.1.y)
+
+        return SIMD3<Float>(pitch, yaw, roll)
+    }
+}
