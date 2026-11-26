@@ -1,7 +1,7 @@
 cat > .github/workflows/build.yml << 'EOF'
 name: Build iOS App
 
-on:
+"on":
   push:
     branches: [ main ]
   workflow_dispatch:
