@@ -1914,7 +1914,7 @@ class UDPClient {
             }
         }
 
-        connection?.send(
+        connection.send(
             content: data,
             completion: .contentProcessed { error in
 
