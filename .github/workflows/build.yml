@@ -5,6 +5,9 @@ name: Build iOS App
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -25,6 +28,26 @@ jobs:
             done
             exit "$status"
           fi
+
+      - name: Publicar el log si falla
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = 'sin build.log';
+            try {
+              log = fs.readFileSync('build.log', 'utf8');
+            } catch (error) {
+              log = 'no se pudo leer build.log: ' + error.message;
+            }
+            const tail = log.slice(-60000);
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+              body: 'Log de compilacion:\n\n```\n' + tail + '\n```'
+            });
 
       - name: Diagnostico del binario
         run: |
