@@ -8,6 +8,24 @@ import Network
 import Metal
 import simd
 import QuartzCore
+import Combine
+
+// MARK: - Network Configuration
+
+enum SimtrackNetwork {
+    static let pcIP = "172.20.10.12"
+
+    // Tracking TrueDepth: formato binario actual de 48 bytes.
+    static let trackingPort: UInt16 = 4242
+
+    // Órdenes de control iPhone -> Windows.
+    static let controlPort: UInt16 = 4243
+
+    // Telemetría Windows -> iPhone.
+    static let telemetryPort: UInt16 = 4244
+
+    static let protocolVersion = "simtrack.bridge.v1"
+}
 
 // MARK: - Mesh Colors
 
@@ -53,11 +71,275 @@ enum TrackingOrientation: Hashable {
     case landscape
 }
 
+// MARK: - Windows Telemetry
+
+struct HeadphonesTelemetry {
+    var connected = false
+    var deviceName = "Sin información"
+    var imuAvailable = false
+    var sampleRateHz: Double?
+    var yaw: Double?
+    var pitch: Double?
+    var roll: Double?
+    var gyroX: Double?
+    var gyroY: Double?
+    var gyroZ: Double?
+    var accelerometerX: Double?
+    var accelerometerY: Double?
+    var accelerometerZ: Double?
+    var receivedAt: Date?
+}
+
+// MARK: - Windows Bridge
+
+final class WindowsBridge: ObservableObject {
+
+    static let shared = WindowsBridge()
+
+    @Published private(set) var headphones = HeadphonesTelemetry()
+    @Published private(set) var listenerStatus = "Iniciando receptor..."
+    @Published private(set) var lastCommandStatus = "Sin órdenes enviadas"
+
+    private let queue = DispatchQueue(
+        label: "com.simtrack.windowsbridge",
+        qos: .userInitiated
+    )
+
+    private var controlConnection: NWConnection?
+    private var listener: NWListener?
+    private var incomingConnection: NWConnection?
+
+    private var listenerStarted = false
+
+    private init() {
+        setupControlConnection()
+    }
+
+    // MARK: PC Control Connection
+
+    private func setupControlConnection() {
+        let host = NWEndpoint.Host(SimtrackNetwork.pcIP)
+        let port = NWEndpoint.Port(
+            rawValue: SimtrackNetwork.controlPort
+        )!
+
+        let connection = NWConnection(
+            host: host,
+            port: port,
+            using: .udp
+        )
+
+        controlConnection = connection
+
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                print("Simtrack Bridge: canal de control preparado")
+
+            case .failed(let error):
+                print("Simtrack Bridge: error de control: \(error)")
+
+            default:
+                break
+            }
+        }
+
+        connection.start(queue: queue)
+    }
+
+    // MARK: Global Recenter
+
+    func sendGlobalRecenter() {
+
+        let message: [String: Any] = [
+            "protocol": SimtrackNetwork.protocolVersion,
+            "type": "tracking.recenter",
+            "source": "iphone",
+            "requestId": UUID().uuidString,
+            "timestampUnixMs": Int64(
+                Date().timeIntervalSince1970 * 1000
+            )
+        ]
+
+        guard JSONSerialization.isValidJSONObject(message),
+              let data = try? JSONSerialization.data(
+                withJSONObject: message
+              )
+        else {
+            print("Simtrack Bridge: no se pudo crear la orden")
+            return
+        }
+
+        controlConnection?.send(
+            content: data,
+            completion: .contentProcessed { [weak self] error in
+
+                if let error = error {
+                    print(
+                        "Simtrack Bridge: error enviando recentrado: \(error)"
+                    )
+
+                    DispatchQueue.main.async {
+                        self?.lastCommandStatus = "Error enviando orden"
+                    }
+
+                } else {
+                    print(
+                        "Simtrack Bridge: orden global de recentrado enviada"
+                    )
+
+                    DispatchQueue.main.async {
+                        self?.lastCommandStatus = "Orden de recentrado enviada"
+                    }
+                }
+            }
+        )
+    }
+
+    // MARK: Windows Telemetry Listener
+
+    func start() {
+        guard !listenerStarted else { return }
+        listenerStarted = true
+
+        do {
+            let port = NWEndpoint.Port(
+                rawValue: SimtrackNetwork.telemetryPort
+            )!
+
+            let newListener = try NWListener(
+                using: .udp,
+                on: port
+            )
+
+            listener = newListener
+
+            newListener.stateUpdateHandler = { [weak self] state in
+
+                switch state {
+                case .ready:
+                    DispatchQueue.main.async {
+                        self?.listenerStatus = "Esperando aplicación Windows"
+                    }
+                    print(
+                        "Simtrack Bridge: receptor UDP activo en \(SimtrackNetwork.telemetryPort)"
+                    )
+
+                case .failed(let error):
+                    DispatchQueue.main.async {
+                        self?.listenerStatus = "Error de recepción"
+                    }
+                    print("Simtrack Bridge: error listener: \(error)")
+
+                case .cancelled:
+                    DispatchQueue.main.async {
+                        self?.listenerStatus = "Receptor detenido"
+                    }
+
+                default:
+                    break
+                }
+            }
+
+            newListener.newConnectionHandler = { [weak self] connection in
+                guard let self else { return }
+
+                self.incomingConnection = connection
+                connection.start(queue: self.queue)
+                self.receiveTelemetry(from: connection)
+            }
+
+            newListener.start(queue: queue)
+
+        } catch {
+            listenerStarted = false
+            listenerStatus = "No se pudo iniciar el receptor"
+            print("Simtrack Bridge: no se pudo crear listener: \(error)")
+        }
+    }
+
+    private func receiveTelemetry(from connection: NWConnection) {
+
+        connection.receiveMessage {
+            [weak self] data, _, _, error in
+
+            guard let self else { return }
+
+            if let data, !data.isEmpty {
+                self.processTelemetry(data)
+            }
+
+            if let error {
+                print(
+                    "Simtrack Bridge: error recibiendo telemetría: \(error)"
+                )
+                return
+            }
+
+            self.receiveTelemetry(from: connection)
+        }
+    }
+
+    // MARK: Parse Windows Messages
+
+    private func processTelemetry(_ data: Data) {
+
+        guard
+            let object = try? JSONSerialization.jsonObject(
+                with: data
+            ),
+            let message = object as? [String: Any],
+            let messageType = message["type"] as? String
+        else {
+            print("Simtrack Bridge: mensaje JSON no válido")
+            return
+        }
+
+        guard messageType == "headphones.telemetry" else {
+            return
+        }
+
+        let telemetry = HeadphonesTelemetry(
+            connected: message["connected"] as? Bool ?? false,
+            deviceName: message["deviceName"] as? String
+                ?? "Dispositivo desconocido",
+            imuAvailable: message["imuAvailable"] as? Bool ?? false,
+            sampleRateHz: number(message["sampleRateHz"]),
+            yaw: number(message["yaw"]),
+            pitch: number(message["pitch"]),
+            roll: number(message["roll"]),
+            gyroX: number(message["gyroX"]),
+            gyroY: number(message["gyroY"]),
+            gyroZ: number(message["gyroZ"]),
+            accelerometerX: number(message["accelerometerX"]),
+            accelerometerY: number(message["accelerometerY"]),
+            accelerometerZ: number(message["accelerometerZ"]),
+            receivedAt: Date()
+        )
+
+        DispatchQueue.main.async {
+            self.headphones = telemetry
+        }
+    }
+
+    private func number(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        if let value = value as? Double {
+            return value
+        }
+        return nil
+    }
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
+
     var body: some View {
         TabView {
+
             TrackingView()
                 .tabItem {
                     Label("Tracking", systemImage: "faceid")
@@ -85,7 +367,6 @@ struct TrackingView: View {
     @State private var showMesh = true
     @State private var showMarkers = true
     @State private var selectedMeshColor: MeshColor = .green
-
     @State private var poseText = "Esperando seguimiento facial..."
     @State private var trackingActive = false
 
@@ -172,7 +453,13 @@ struct TrackingView: View {
                 Spacer()
 
                 Button {
+
+                    // Recentrado local de TrueDepth.
                     recenterToken += 1
+
+                    // Recentrado global de todas las fuentes Windows.
+                    WindowsBridge.shared.sendGlobalRecenter()
+
                 } label: {
                     Label(
                         "RECENTRAR CÁMARA",
@@ -186,7 +473,6 @@ struct TrackingView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
-                .disabled(!trackingActive)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 14)
             }
@@ -206,8 +492,6 @@ struct TrackingView: View {
             ScrollView {
 
                 VStack(alignment: .leading, spacing: 20) {
-
-                    // Estado y apariencia.
 
                     VStack(alignment: .leading, spacing: 12) {
 
@@ -263,7 +547,7 @@ struct TrackingView: View {
                     .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                    // Telemetría.
+                    // Telemetría TrueDepth.
 
                     VStack(alignment: .leading, spacing: 10) {
 
@@ -494,7 +778,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         private weak var trackedFaceNode: SCNNode?
 
         private var noseVertexIndex: Int?
-
         private var showMesh = true
         private var showMarkers = true
         private var meshColor: UIColor = .systemGreen
@@ -524,7 +807,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             onPoseUpdate: @escaping (String) -> Void,
             onTrackingLost: @escaping () -> Void
         ) {
-
             self.onPoseUpdate = onPoseUpdate
             self.onTrackingLost = onTrackingLost
 
@@ -540,14 +822,12 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             sensitivity: PoseSensitivity,
             recenterToken: Int
         ) {
-
             self.showMesh = showMesh
             self.showMarkers = showMarkers
             self.meshColor = meshColor
             self.sensitivity = sensitivity
 
             if recenterToken != lastRecenterToken {
-
                 lastRecenterToken = recenterToken
                 recenterPending = true
             }
@@ -565,7 +845,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 withName: "faceMesh",
                 recursively: false
             ) {
-
                 meshNode.isHidden = !showMesh
 
                 meshNode.geometry?
@@ -577,7 +856,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 withName: "noseMarker",
                 recursively: false
             ) {
-
                 noseMarker.isHidden = !showMarkers
             }
 
@@ -585,7 +863,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 withName: "leftEyeMarker",
                 recursively: false
             ) {
-
                 leftEyeMarker.isHidden = !showMarkers
             }
 
@@ -593,7 +870,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 withName: "rightEyeMarker",
                 recursively: false
             ) {
-
                 rightEyeMarker.isHidden = !showMarkers
             }
         }
@@ -603,8 +879,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         private func currentTrackingOrientation(
             from renderer: SCNSceneRenderer
         ) -> TrackingOrientation {
-
-            // Preferimos la orientación real de la interfaz.
 
             if let arView = renderer as? ARSCNView,
                let interfaceOrientation =
@@ -627,8 +901,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     break
                 }
             }
-
-            // Respaldo mediante la orientación física del dispositivo.
 
             switch UIDevice.current.orientation {
 
@@ -680,7 +952,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
             let meshNode = SCNNode(geometry: faceGeometry)
             meshNode.name = "faceMesh"
-
             node.addChildNode(meshNode)
 
             // Nose marker.
@@ -774,7 +1045,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 withName: "leftEyeMarker",
                 recursively: false
             ) {
-
                 leftEyeMarker.simdTransform =
                     faceAnchor.leftEyeTransform
             }
@@ -783,7 +1053,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 withName: "rightEyeMarker",
                 recursively: false
             ) {
-
                 rightEyeMarker.simdTransform =
                     faceAnchor.rightEyeTransform
             }
@@ -800,14 +1069,13 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
             let euler = transform.eulerAngles
 
-            // Detectamos si estamos en vertical u horizontal.
+            // Detectar orientación.
 
             let orientation = currentTrackingOrientation(
                 from: renderer
             )
 
-            // Si esta orientación todavía no tiene referencia,
-            // guardamos la posición y rotación actuales.
+            // Referencia inicial independiente por orientación.
 
             if baselinePositions[orientation] == nil ||
                baselineEulers[orientation] == nil {
@@ -820,7 +1088,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 )
             }
 
-            // Recentrar únicamente la orientación actual.
+            // Recentrar la orientación actual.
 
             if recenterPending {
 
@@ -834,7 +1102,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 )
             }
 
-            // Recuperamos la referencia de la orientación actual.
+            // Recuperar referencia.
 
             guard
                 let originPosition = baselinePositions[orientation],
@@ -865,7 +1133,8 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             let outputPitch = relativeEuler.y * sensitivity.pitch
             let outputRoll = relativeEuler.z * sensitivity.roll
 
-            // Send UDP.
+            // Send tracking UDP.
+            // Se conserva el formato original de 48 bytes.
 
             udpClient.send(
                 pose: (
@@ -919,8 +1188,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 trackedFaceNode = nil
             }
 
-            // Conservamos las referencias de ambas orientaciones.
-            // Así no se pierde la calibración al perder y recuperar la cara.
+            // Conservamos ambas referencias al perder la cara.
 
             DispatchQueue.main.async { [weak self] in
                 self?.onTrackingLost()
@@ -956,28 +1224,289 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
 struct HeadphonesView: View {
 
+    @StateObject private var bridge = WindowsBridge.shared
+
     var body: some View {
 
-        VStack(spacing: 20) {
+        NavigationView {
 
-            Image(systemName: "headphones")
-                .font(.system(size: 60))
-                .foregroundColor(.blue)
+            ScrollView {
 
-            Text("Auriculares (Sony ULT WEAR)")
-                .font(.title2)
-                .bold()
+                VStack(spacing: 18) {
+
+                    Image(systemName: "headphones")
+                        .font(.system(size: 58))
+                        .foregroundColor(.blue)
+                        .padding(.top, 12)
+
+                    Text("Auriculares")
+                        .font(.title2)
+                        .bold()
+
+                    // Estado de Windows.
+
+                    VStack(alignment: .leading, spacing: 10) {
+
+                        Label(
+                            "CONEXIÓN CON SIMTRACK WINDOWS",
+                            systemImage: "desktopcomputer"
+                        )
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        HStack {
+                            Circle()
+                                .fill(
+                                    bridge.listenerStatus ==
+                                    "Esperando aplicación Windows"
+                                    ? Color.orange
+                                    : Color.secondary
+                                )
+                                .frame(width: 9, height: 9)
+
+                            Text(bridge.listenerStatus)
+                                .font(.subheadline)
+                        }
+
+                        Text(
+                            "Receptor UDP: \(SimtrackNetwork.telemetryPort)"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    // Estado de los auriculares.
+
+                    VStack(alignment: .leading, spacing: 12) {
+
+                        Label(
+                            "DISPOSITIVO",
+                            systemImage: "headphones"
+                        )
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        HStack {
+
+                            VStack(alignment: .leading, spacing: 4) {
+
+                                Text(bridge.headphones.deviceName)
+                                    .font(.headline)
+
+                                Text(
+                                    bridge.headphones.connected
+                                    ? "Conectado al PC"
+                                    : "Sin conexión comunicada"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Circle()
+                                .fill(
+                                    bridge.headphones.connected
+                                    ? Color.green
+                                    : Color.orange
+                                )
+                                .frame(width: 11, height: 11)
+                        }
+
+                        Divider()
+
+                        HStack {
+                            Text("Sensor IMU")
+                            Spacer()
+                            Text(
+                                bridge.headphones.imuAvailable
+                                ? "Disponible"
+                                : "No disponible"
+                            )
+                            .foregroundStyle(
+                                bridge.headphones.imuAvailable
+                                ? Color.green
+                                : Color.secondary
+                            )
+                        }
+                        .font(.subheadline)
+
+                        HStack {
+                            Text("Frecuencia")
+                            Spacer()
+                            Text(
+                                bridge.headphones.sampleRateHz.map {
+                                    String(format: "%.1f Hz", $0)
+                                } ?? "Sin datos"
+                            )
+                            .monospacedDigit()
+                        }
+                        .font(.subheadline)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    // Orientación.
+
+                    VStack(alignment: .leading, spacing: 12) {
+
+                        Label(
+                            "ORIENTACIÓN",
+                            systemImage: "gyroscope"
+                        )
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        telemetryRow(
+                            "Yaw",
+                            value: bridge.headphones.yaw,
+                            suffix: "°"
+                        )
+
+                        telemetryRow(
+                            "Pitch",
+                            value: bridge.headphones.pitch,
+                            suffix: "°"
+                        )
+
+                        telemetryRow(
+                            "Roll",
+                            value: bridge.headphones.roll,
+                            suffix: "°"
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    // Giroscopio.
+
+                    VStack(alignment: .leading, spacing: 12) {
+
+                        Label(
+                            "GIROSCOPIO",
+                            systemImage: "rotate.3d"
+                        )
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        telemetryRow(
+                            "X",
+                            value: bridge.headphones.gyroX,
+                            suffix: ""
+                        )
+
+                        telemetryRow(
+                            "Y",
+                            value: bridge.headphones.gyroY,
+                            suffix: ""
+                        )
+
+                        telemetryRow(
+                            "Z",
+                            value: bridge.headphones.gyroZ,
+                            suffix: ""
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    // Acelerómetro.
+
+                    VStack(alignment: .leading, spacing: 12) {
+
+                        Label(
+                            "ACELERÓMETRO",
+                            systemImage: "move.3d"
+                        )
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        telemetryRow(
+                            "X",
+                            value: bridge.headphones.accelerometerX,
+                            suffix: ""
+                        )
+
+                        telemetryRow(
+                            "Y",
+                            value: bridge.headphones.accelerometerY,
+                            suffix: ""
+                        )
+
+                        telemetryRow(
+                            "Z",
+                            value: bridge.headphones.accelerometerZ,
+                            suffix: ""
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    Text(
+                        "Los datos de movimiento llegarán desde Simtrack Windows. El iPhone no se conecta directamente a los auriculares."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+
+                }
+                .padding(16)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationBarTitle(
+                "Auriculares",
+                displayMode: .inline
+            )
+            .onAppear {
+                bridge.start()
+            }
+        }
+    }
+
+    // MARK: Telemetry Row
+
+    private func telemetryRow(
+        _ title: String,
+        value: Double?,
+        suffix: String
+    ) -> some View {
+
+        HStack {
+            Text(title)
+                .foregroundStyle(.secondary)
+
+            Spacer()
 
             Text(
-                "Aquí verás el estado de la conexión y los ajustes del head tracking."
+                value.map {
+                    String(format: "%+.3f%@", $0, suffix)
+                } ?? "—"
             )
-            .multilineTextAlignment(.center)
-            .padding()
-
-            Text("(En desarrollo)")
-                .foregroundStyle(.secondary)
+            .font(.system(
+                size: 13,
+                weight: .medium,
+                design: .monospaced
+            ))
+            .monospacedDigit()
         }
-        .padding()
     }
 }
 
@@ -996,14 +1525,10 @@ struct DashboardView: View {
 
                 if isLandscape {
 
-                    // Horizontal: contenido a pantalla completa.
-
                     DashboardWebView()
                         .ignoresSafeArea()
 
                 } else {
-
-                    // Vertical: conserva el espacio de navegación.
 
                     DashboardWebView()
                 }
@@ -1028,16 +1553,10 @@ struct DashboardWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
 
-        // Recuperamos la implementación sencilla original.
-        // Dejamos que WKWebView gestione su fondo y sus insets por defecto.
-
         let webView = WKWebView()
 
         if let url = URL(string: urlString) {
-
-            webView.load(
-                URLRequest(url: url)
-            )
+            webView.load(URLRequest(url: url))
         }
 
         return webView
@@ -1055,8 +1574,8 @@ class UDPClient {
 
     private var connection: NWConnection?
 
-    private let targetIP = "172.20.10.12"
-    private let targetPort: UInt16 = 4242
+    private let targetIP = SimtrackNetwork.pcIP
+    private let targetPort = SimtrackNetwork.trackingPort
 
     init() {
 
@@ -1074,7 +1593,7 @@ class UDPClient {
             switch state {
 
             case .ready:
-                print("UDP conectado correctamente")
+                print("UDP tracking conectado correctamente")
 
             case .failed(let error):
                 print("Error de conexión UDP: \(error)")
@@ -1101,13 +1620,13 @@ class UDPClient {
         var data = Data()
 
         // Centímetros y grados.
+        // Se mantienen los seis Double little-endian.
 
         let values: [Double] = [
 
             Double(pose.x) * 100.0,
             Double(pose.y) * 100.0,
             Double(pose.z) * 100.0,
-
             Double(pose.yaw) * 180.0 / .pi,
             Double(pose.pitch) * 180.0 / .pi,
             Double(pose.roll) * 180.0 / .pi
@@ -1127,7 +1646,7 @@ class UDPClient {
             completion: .contentProcessed { error in
 
                 if let error = error {
-                    print("Error enviando UDP: \(error)")
+                    print("Error enviando UDP tracking: \(error)")
                 }
             }
         )
