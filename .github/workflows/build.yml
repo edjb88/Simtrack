@@ -1,0 +1,41 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Permite lanzarlo manualmente desde GitHub
+
+jobs:
+  build:
+    runs-on: macos-latest # Usa un servidor macOS gratuito de GitHub
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Seleccionar versión de Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Compilar la app (sin firmar)
+        run: |
+          xcodebuild clean build \
+            -project Simtrack.xcodeproj \
+            -scheme Simtrack \
+            -sdk iphoneos \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -derivedDataPath ./build
+
+      - name: Empaquetar el .ipa (sin firmar)
+        run: |
+          mkdir -p Payload
+          cp -r ./build/Build/Products/Release-iphoneos/Simtrack.app Payload/
+          zip -r Simtrack-unsigned.ipa Payload
+
+      - name: Subir el .ipa como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: Simtrack-unsigned-ipa
+          path: Simtrack-unsigned.ipa
