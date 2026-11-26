@@ -13,7 +13,7 @@ import Combine
 // MARK: - Network Configuration
 
 enum SimtrackNetwork {
-    static let pcIP = "172.20.10.12"
+    static let pcIP = "192.168.1.37"
 
     // Tracking TrueDepth: formato binario actual de 48 bytes.
     static let trackingPort: UInt16 = 4242
