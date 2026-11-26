@@ -790,9 +790,9 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     outputRoll * 180 / .pi
                 )
 
-                DispatchQueue.main.async { [weak self] in {
-                    self?.onPoseUpdate(telemetry)
-                }}
+            DispatchQueue.main.async { [weak self] in
+    self?.onPoseUpdate(telemetry)
+}
             }
         }
 
@@ -815,9 +815,9 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             baselinePosition = nil
             baselineEuler = nil
 
-            DispatchQueue.main.async { [weak self] in {
-                self?.onTrackingLost()
-            }}
+            DispatchQueue.main.async { [weak self] in
+    self?.onTrackingLost()
+}
         }
 
         // MARK: Angle Normalization
