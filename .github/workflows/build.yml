@@ -23,17 +23,16 @@ jobs:
         run: |
           xcodebuild clean build -project Simtrack.xcodeproj -scheme Simtrack -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath ./build
 
-      - name: Diagnostico del app generado
+      - name: Diagnostico del binario
         run: |
-          ls -la ./build/Build/Products/Release-iphoneos/Simtrack.app/
-          du -sh ./build/Build/Products/Release-iphoneos/Simtrack.app/
+          echo "Buscando cadenas del codigo nuevo en el binario:"
+          strings ./build/Build/Products/Release-iphoneos/Simtrack.app/Simtrack | grep -i "Tracking\|Auriculares\|Dashboard\|Cara" || echo "NO SE ENCONTRARON CADENAS DEL CODIGO NUEVO"
 
       - name: Empaquetar el ipa sin firmar
         run: |
           mkdir -p Payload
           cp -r ./build/Build/Products/Release-iphoneos/Simtrack.app Payload/
           zip -r Simtrack-unsigned.ipa Payload
-          ls -la Simtrack-unsigned.ipa
           unzip -l Simtrack-unsigned.ipa
 
       - name: Subir el ipa como artefacto
