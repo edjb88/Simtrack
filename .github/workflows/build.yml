@@ -16,6 +16,17 @@ jobs:
       - name: Verificar version de Xcode
         run: xcodebuild -version
 
+      - name: Diagnosticar archivos y proyecto
+        run: |
+          echo "=== Archivos en la raiz ==="
+          ls -la
+          echo "=== Buscar todos los ContentView.swift ==="
+          find . -name "ContentView.swift"
+          echo "=== Primeras lineas de ContentView.swift en la raiz ==="
+          head -30 ContentView.swift
+          echo "=== Referencias a ContentView en project.pbxproj ==="
+          grep -n "ContentView" Simtrack.xcodeproj/project.pbxproj
+
       - name: Listar schemes disponibles
         run: xcodebuild -list -project Simtrack.xcodeproj
 
