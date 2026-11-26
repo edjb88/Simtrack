@@ -76,3 +76,32 @@ struct DashboardView: UIViewRepresentable {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View { ContentView() }
 }
+import Network // Necesario para NWConnection
+
+class UDPClient {
+    private var connection: NWConnection?
+    
+    init(host: String, port: UInt16) {
+        let host = NWEndpoint.Host(host)
+        let port = NWEndpoint.Port(rawValue: port)!
+        connection = NWConnection(host: host, port: port, using: .udp)
+        connection?.start(queue: .global())
+    }
+    
+    func send(pose: (x: Float, y: Float, z: Float, yaw: Float, pitch: Float, roll: Float)) {
+        // Empaquetamos los 6 valores como 'double' (Float64) en little-endian
+        var data = Data()
+        let values: [Double] = [Double(pose.x), Double(pose.y), Double(pose.z),
+                                Double(pose.yaw), Double(pose.pitch), Double(pose.roll)]
+        for value in values {
+            var littleEndianValue = value.bitPattern.littleEndian
+            withUnsafeBytes(of: &littleEndianValue) { data.append(contentsOf: $0) }
+        }
+        
+        connection?.send(content: data, completion: .contentProcessed({ error in
+            if let error = error {
+                print("Error enviando UDP: \(error)")
+            }
+        }))
+    }
+}
