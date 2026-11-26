@@ -202,14 +202,14 @@ class UDPClient {
 
         var data = Data()
 
-        let values: [Double] = [
-            Double(pose.x),
-            Double(pose.y),
-            Double(pose.z),
-            Double(pose.yaw),
-            Double(pose.pitch),
-            Double(pose.roll)
-        ]
+       let values: [Double] = [
+    Double(pose.x) * 100.0,
+    Double(pose.y) * 100.0,
+    Double(pose.z) * 100.0,
+    Double(pose.yaw) * 180.0 / .pi,
+    Double(pose.pitch) * 180.0 / .pi,
+    Double(pose.roll) * 180.0 / .pi
+]
 
         for value in values {
 
