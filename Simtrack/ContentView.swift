@@ -46,6 +46,13 @@ struct PoseSensitivity {
     var roll: Float = 1.0
 }
 
+// MARK: - Tracking Orientation
+
+enum TrackingOrientation: Hashable {
+    case portrait
+    case landscape
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
@@ -108,7 +115,6 @@ struct TrackingView: View {
 
         ZStack {
 
-            // La cámara ocupa toda la pantalla.
             FaceTrackingRepresentable(
                 showMesh: showMesh,
                 showMarkers: showMarkers,
@@ -128,7 +134,6 @@ struct TrackingView: View {
 
             VStack(spacing: 0) {
 
-                // Barra superior mínima: título, estado y ajustes.
                 HStack(spacing: 12) {
 
                     Label("SIMTRACK", systemImage: "faceid")
@@ -166,7 +171,6 @@ struct TrackingView: View {
 
                 Spacer()
 
-                // Único control principal visible sobre la cámara.
                 Button {
                     recenterToken += 1
                 } label: {
@@ -204,6 +208,7 @@ struct TrackingView: View {
                 VStack(alignment: .leading, spacing: 20) {
 
                     // Estado y apariencia.
+
                     VStack(alignment: .leading, spacing: 12) {
 
                         Text("SEGUIMIENTO Y APARIENCIA")
@@ -222,6 +227,7 @@ struct TrackingView: View {
 
                         if showMesh {
                             VStack(alignment: .leading, spacing: 8) {
+
                                 Text("COLOR DE MALLA")
                                     .font(.caption)
                                     .fontWeight(.bold)
@@ -244,8 +250,12 @@ struct TrackingView: View {
                         HStack {
                             Text("Apariencia")
                             Spacer()
-                            Text(colorScheme == .dark ? "Modo noche" : "Modo día")
-                                .foregroundStyle(.secondary)
+                            Text(
+                                colorScheme == .dark
+                                ? "Modo noche"
+                                : "Modo día"
+                            )
+                            .foregroundStyle(.secondary)
                         }
                         .font(.subheadline)
                     }
@@ -254,6 +264,7 @@ struct TrackingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
                     // Telemetría.
+
                     VStack(alignment: .leading, spacing: 10) {
 
                         HStack {
@@ -268,7 +279,9 @@ struct TrackingView: View {
                                 .font(.caption2)
                                 .fontWeight(.bold)
                                 .foregroundStyle(
-                                    trackingActive ? Color.green : Color.orange
+                                    trackingActive
+                                    ? Color.green
+                                    : Color.orange
                                 )
                         }
 
@@ -282,13 +295,17 @@ struct TrackingView: View {
                             ))
                             .lineSpacing(5)
                             .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .leading
+                            )
                     }
                     .padding(16)
                     .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
 
                     // Sensibilidades.
+
                     VStack(alignment: .leading, spacing: 14) {
 
                         Label(
@@ -355,7 +372,10 @@ struct TrackingView: View {
                 .padding(16)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationBarTitle("Ajustes de tracking", displayMode: .inline)
+            .navigationBarTitle(
+                "Ajustes de tracking",
+                displayMode: .inline
+            )
             .navigationBarItems(
                 trailing: Button("Cerrar") {
                     showSettings = false
@@ -380,10 +400,12 @@ struct TrackingView: View {
 
                 Spacer()
 
-                Text(String(format: "%.1fx", value.wrappedValue))
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .monospacedDigit()
+                Text(
+                    String(format: "%.1fx", value.wrappedValue)
+                )
+                .font(.caption)
+                .fontWeight(.bold)
+                .monospacedDigit()
             }
 
             Slider(
@@ -482,8 +504,17 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         private var lastRecenterToken = 0
         private var recenterPending = false
 
-        private var baselinePosition: SIMD3<Float>?
-        private var baselineEuler: SIMD3<Float>?
+        // Referencias independientes para cada orientación.
+
+        private var baselinePositions:
+            [TrackingOrientation: SIMD3<Float>] = [:]
+
+        private var baselineEulers:
+            [TrackingOrientation: SIMD3<Float>] = [:]
+
+        // Última orientación válida conocida.
+
+        private var lastKnownOrientation: TrackingOrientation = .portrait
 
         private let markerRadius: CGFloat = 0.006
 
@@ -567,6 +598,53 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             }
         }
 
+        // MARK: Orientation Detection
+
+        private func currentTrackingOrientation(
+            from renderer: SCNSceneRenderer
+        ) -> TrackingOrientation {
+
+            // Preferimos la orientación real de la interfaz.
+
+            if let arView = renderer as? ARSCNView,
+               let interfaceOrientation =
+                arView.window?.windowScene?.interfaceOrientation {
+
+                switch interfaceOrientation {
+
+                case .portrait, .portraitUpsideDown:
+                    lastKnownOrientation = .portrait
+                    return .portrait
+
+                case .landscapeLeft, .landscapeRight:
+                    lastKnownOrientation = .landscape
+                    return .landscape
+
+                case .unknown:
+                    break
+
+                @unknown default:
+                    break
+                }
+            }
+
+            // Respaldo mediante la orientación física del dispositivo.
+
+            switch UIDevice.current.orientation {
+
+            case .portrait, .portraitUpsideDown:
+                lastKnownOrientation = .portrait
+                return .portrait
+
+            case .landscapeLeft, .landscapeRight:
+                lastKnownOrientation = .landscape
+                return .landscape
+
+            default:
+                return lastKnownOrientation
+            }
+        }
+
         // MARK: Face Added
 
         func renderer(
@@ -593,7 +671,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
             trackedFaceNode = node
 
-            // Face mesh
+            // Face mesh.
 
             faceGeometry.firstMaterial?.fillMode = .lines
             faceGeometry.firstMaterial?.lightingModel = .constant
@@ -605,7 +683,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
             node.addChildNode(meshNode)
 
-            // Nose marker
+            // Nose marker.
 
             let noseMarker = createMarker(
                 color: .systemRed,
@@ -615,7 +693,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             noseMarker.name = "noseMarker"
             node.addChildNode(noseMarker)
 
-            // Left eye
+            // Left eye.
 
             let leftEyeMarker = createMarker(
                 color: .systemBlue,
@@ -625,7 +703,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             leftEyeMarker.name = "leftEyeMarker"
             node.addChildNode(leftEyeMarker)
 
-            // Right eye
+            // Right eye.
 
             let rightEyeMarker = createMarker(
                 color: .systemYellow,
@@ -635,7 +713,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             rightEyeMarker.name = "rightEyeMarker"
             node.addChildNode(rightEyeMarker)
 
-            // Nose vertex
+            // Nose vertex.
 
             let vertices = faceAnchor.geometry.vertices
 
@@ -664,7 +742,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
             let transform = faceAnchor.transform
 
-            // Update mesh
+            // Update mesh.
 
             if let meshNode = node.childNode(
                 withName: "faceMesh",
@@ -675,7 +753,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 geometry.update(from: faceAnchor.geometry)
             }
 
-            // Update nose
+            // Update nose.
 
             if let noseMarker = node.childNode(
                 withName: "noseMarker",
@@ -690,7 +768,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 }
             }
 
-            // Update eyes
+            // Update eyes.
 
             if let leftEyeMarker = node.childNode(
                 withName: "leftEyeMarker",
@@ -710,7 +788,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     faceAnchor.rightEyeTransform
             }
 
-            // Raw position
+            // Raw position.
 
             let position = SIMD3<Float>(
                 transform.columns.3.x,
@@ -718,42 +796,58 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 transform.columns.3.z
             )
 
-            // Raw rotation
+            // Raw rotation.
 
             let euler = transform.eulerAngles
 
-            // First frame establishes initial centre
+            // Detectamos si estamos en vertical u horizontal.
 
-            if baselinePosition == nil || baselineEuler == nil {
+            let orientation = currentTrackingOrientation(
+                from: renderer
+            )
 
-                baselinePosition = position
-                baselineEuler = euler
+            // Si esta orientación todavía no tiene referencia,
+            // guardamos la posición y rotación actuales.
+
+            if baselinePositions[orientation] == nil ||
+               baselineEulers[orientation] == nil {
+
+                baselinePositions[orientation] = position
+                baselineEulers[orientation] = euler
+
+                print(
+                    "Simtrack: referencia inicial guardada para \(orientation)"
+                )
             }
 
-            // Recenter on next valid tracking frame
+            // Recentrar únicamente la orientación actual.
 
             if recenterPending {
 
-                baselinePosition = position
-                baselineEuler = euler
+                baselinePositions[orientation] = position
+                baselineEulers[orientation] = euler
 
                 recenterPending = false
 
-                print("Simtrack: recentrado realizado")
+                print(
+                    "Simtrack: recentrado realizado para \(orientation)"
+                )
             }
 
+            // Recuperamos la referencia de la orientación actual.
+
             guard
-                let originPosition = baselinePosition,
-                let originEuler = baselineEuler
+                let originPosition = baselinePositions[orientation],
+                let originEuler = baselineEulers[orientation]
             else {
                 return
             }
 
-            // Relative position
+            // Relative position.
 
             let relativePosition = position - originPosition
 
-            // Relative rotation with angle wrapping
+            // Relative rotation with angle wrapping.
 
             let relativeEuler = SIMD3<Float>(
                 normalizedAngle(euler.x - originEuler.x),
@@ -761,7 +855,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 normalizedAngle(euler.z - originEuler.z)
             )
 
-            // Apply individual sensitivities
+            // Apply individual sensitivities.
 
             let outputX = relativePosition.x * sensitivity.x
             let outputY = relativePosition.y * sensitivity.y
@@ -771,7 +865,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             let outputPitch = relativeEuler.y * sensitivity.pitch
             let outputRoll = relativeEuler.z * sensitivity.roll
 
-            // Send UDP
+            // Send UDP.
 
             udpClient.send(
                 pose: (
@@ -784,7 +878,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 )
             )
 
-            // Update telemetry at 10 Hz
+            // Update telemetry at 10 Hz.
 
             let currentTime = CACurrentMediaTime()
 
@@ -825,8 +919,8 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 trackedFaceNode = nil
             }
 
-            baselinePosition = nil
-            baselineEuler = nil
+            // Conservamos las referencias de ambas orientaciones.
+            // Así no se pierde la calibración al perder y recuperar la cara.
 
             DispatchQueue.main.async { [weak self] in
                 self?.onTrackingLost()
@@ -836,7 +930,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         // MARK: Angle Normalization
 
         private func normalizedAngle(_ angle: Float) -> Float {
-
             atan2(sin(angle), cos(angle))
         }
 
@@ -890,7 +983,46 @@ struct HeadphonesView: View {
 
 // MARK: - DashboardView
 
-struct DashboardView: UIViewRepresentable {
+struct DashboardView: View {
+
+    var body: some View {
+
+        GeometryReader { geometry in
+
+            let isLandscape =
+                geometry.size.width > geometry.size.height
+
+            Group {
+
+                if isLandscape {
+
+                    // Horizontal: contenido a pantalla completa.
+
+                    DashboardWebView()
+                        .ignoresSafeArea()
+
+                } else {
+
+                    // Vertical: conserva el espacio de navegación.
+
+                    DashboardWebView()
+                }
+            }
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height
+            )
+            .toolbar(
+                isLandscape ? .hidden : .visible,
+                for: .tabBar
+            )
+        }
+    }
+}
+
+// MARK: - Dashboard WebView
+
+struct DashboardWebView: UIViewRepresentable {
 
     let urlString = "http://192.168.1.37:8888/"
 
@@ -898,8 +1030,15 @@ struct DashboardView: UIViewRepresentable {
 
         let webView = WKWebView()
 
+        webView.backgroundColor = .black
+        webView.isOpaque = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+
         if let url = URL(string: urlString) {
-            webView.load(URLRequest(url: url))
+
+            webView.load(
+                URLRequest(url: url)
+            )
         }
 
         return webView
@@ -962,7 +1101,7 @@ class UDPClient {
 
         var data = Data()
 
-        // Centímetros y grados
+        // Centímetros y grados.
 
         let values: [Double] = [
 
