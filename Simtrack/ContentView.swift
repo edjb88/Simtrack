@@ -61,7 +61,7 @@ struct HeadphonesView: View {
 
 // MARK: - DashboardView
 struct DashboardView: UIViewRepresentable {
-    let urlString = "http://192.168.1.100:8888"
+    let urlString = "http://172.20.10.12:8888/"
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView()
         if let url = URL(string: urlString) {
