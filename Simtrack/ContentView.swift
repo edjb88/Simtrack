@@ -9,11 +9,14 @@ import Metal
 import simd
 import QuartzCore
 import Combine
+import Darwin
 
 // MARK: - Network Configuration
 
 enum SimtrackNetwork {
-    static let pcIP = "192.168.1.37"
+    // IP del PC. La rellena sola PCDiscovery (UDP 4245); este valor es solo
+    // el respaldo si el descubrimiento no encuentra nada.
+    static var pcIP = "192.168.1.37"
 
     // Tracking TrueDepth: formato binario actual de 48 bytes.
     static let trackingPort: UInt16 = 4242
@@ -23,6 +26,16 @@ enum SimtrackNetwork {
 
     // Telemetría Windows -> iPhone.
     static let telemetryPort: UInt16 = 4244
+
+    // Descubrimiento automático del PC en la red local.
+    static let discoveryPort: UInt16 = 4245
+
+    // Puerto del dashboard de SimHub en el PC (lo informa el propio PC).
+    static var simhubPort = 8888
+
+    static var dashboardURL: String {
+        "http://\(pcIP):\(simhubPort)/"
+    }
 
     static let protocolVersion = "simtrack.bridge.v1"
 }
@@ -71,6 +84,173 @@ enum TrackingOrientation: Hashable {
     case landscape
 }
 
+// MARK: - PC Discovery
+
+/// Busca el PC en la red local por UDP (puerto 4245) en vez de tener la IP
+/// escrita a mano: el router cambia las direcciones cada vez que se reinicia.
+final class PCDiscovery {
+
+    static let shared = PCDiscovery()
+    static let foundNotification = Notification.Name("SimtrackPCDiscovered")
+
+    private let lock = NSLock()
+    private var workerRunning = false
+    private var found = false
+
+    private init() {}
+
+    func start() {
+        lock.lock()
+        if workerRunning || found {
+            lock.unlock()
+            return
+        }
+        workerRunning = true
+        lock.unlock()
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            defer {
+                self.lock.lock()
+                self.workerRunning = false
+                self.lock.unlock()
+            }
+
+            for _ in 0 ..< 40 {
+                if let result = self.probe() {
+                    self.lock.lock()
+                    self.found = true
+                    self.lock.unlock()
+
+                    DispatchQueue.main.async {
+                        SimtrackNetwork.pcIP = result.ip
+                        if let port = result.simhubPort {
+                            SimtrackNetwork.simhubPort = port
+                        }
+                        NotificationCenter.default.post(
+                            name: PCDiscovery.foundNotification,
+                            object: nil
+                        )
+                        print("Simtrack: PC encontrado en \(result.ip) (SimHub \(SimtrackNetwork.simhubPort))")
+                    }
+                    return
+                }
+
+                Thread.sleep(forTimeInterval: 0.8)
+            }
+        }
+    }
+
+    /// Fuerza una nueva búsqueda (por ejemplo al volver a primer plano).
+    func restart() {
+        lock.lock()
+        found = false
+        lock.unlock()
+        start()
+    }
+
+    private func probe() -> (ip: String, simhubPort: Int?)? {
+
+        let descriptor = socket(AF_INET, SOCK_DGRAM, 0)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+
+        var enable: Int32 = 1
+        _ = setsockopt(
+            descriptor,
+            SOL_SOCKET,
+            SO_BROADCAST,
+            &enable,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+
+        var timeout = timeval(tv_sec: 0, tv_usec: 700_000)
+        _ = setsockopt(
+            descriptor,
+            SOL_SOCKET,
+            SO_RCVTIMEO,
+            &timeout,
+            socklen_t(MemoryLayout<timeval>.size)
+        )
+
+        let request: [String: Any] = [
+            "protocol": SimtrackNetwork.protocolVersion,
+            "type": "bridge.discover"
+        ]
+
+        guard let payload = try? JSONSerialization.data(withJSONObject: request) else {
+            return nil
+        }
+
+        // Broadcast general + los dos casos habituales: Wi-Fi de casa y el
+        // cable del iPhone (tethering 172.20.10.0/28).
+        let targets = ["255.255.255.255", "192.168.1.255", "172.20.10.15"]
+
+        for target in targets {
+            var address = sockaddr_in()
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = SimtrackNetwork.discoveryPort.bigEndian
+            _ = inet_pton(AF_INET, target, &address.sin_addr)
+
+            payload.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
+                withUnsafePointer(to: &address) { pointer in
+                    _ = sendto(
+                        descriptor,
+                        buffer.baseAddress,
+                        buffer.count,
+                        0,
+                        UnsafeRawPointer(pointer).assumingMemoryBound(to: sockaddr.self),
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
+                }
+            }
+        }
+
+        var incoming = [UInt8](repeating: 0, count: 2048)
+        var from = sockaddr_in()
+        var fromLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+
+        let received = incoming.withUnsafeMutableBytes { (buffer: UnsafeMutableRawBufferPointer) -> Int in
+            recvfrom(
+                descriptor,
+                buffer.baseAddress,
+                buffer.count,
+                0,
+                withUnsafeMutablePointer(to: &from) { pointer in
+                    UnsafeMutableRawPointer(pointer).assumingMemoryBound(to: sockaddr.self)
+                },
+                &fromLength
+            )
+        }
+
+        guard received > 0 else { return nil }
+
+        let data = Data(bytes: incoming, count: received)
+
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let message = object as? [String: Any],
+            let type = message["type"] as? String,
+            type == "bridge.reply" || type == "bridge.beacon"
+        else {
+            return nil
+        }
+
+        var host = [CChar](repeating: 0, count: 16)
+        _ = withUnsafePointer(to: &from.sin_addr) { pointer in
+            inet_ntop(AF_INET, pointer, &host, socklen_t(16))
+        }
+
+        let ip = String(cString: host)
+        if ip.isEmpty { return nil }
+
+        let simhubPort = (message["simhubPort"] as? NSNumber)?.intValue
+
+        return (ip, simhubPort)
+    }
+}
+
 // MARK: - Windows Telemetry
 
 struct HeadphonesTelemetry {
@@ -106,6 +286,7 @@ final class WindowsBridge: ObservableObject {
     )
 
     private var controlConnection: NWConnection?
+    private var controlIP = ""
     private var listener: NWListener?
     private var incomingConnection: NWConnection?
 
@@ -118,7 +299,17 @@ final class WindowsBridge: ObservableObject {
     // MARK: PC Control Connection
 
     private func setupControlConnection() {
-        let host = NWEndpoint.Host(SimtrackNetwork.pcIP)
+
+        let target = SimtrackNetwork.pcIP
+
+        if controlIP == target && controlConnection != nil {
+            return
+        }
+
+        controlIP = target
+        controlConnection?.cancel()
+
+        let host = NWEndpoint.Host(target)
         let port = NWEndpoint.Port(
             rawValue: SimtrackNetwork.controlPort
         )!
@@ -150,6 +341,8 @@ final class WindowsBridge: ObservableObject {
     // MARK: Global Recenter
 
     func sendGlobalRecenter() {
+
+        setupControlConnection()
 
         let message: [String: Any] = [
             "protocol": SimtrackNetwork.protocolVersion,
@@ -337,6 +530,8 @@ final class WindowsBridge: ObservableObject {
 
 struct ContentView: View {
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         TabView {
 
@@ -354,6 +549,14 @@ struct ContentView: View {
                 .tabItem {
                     Label("Dashboard", systemImage: "speedometer")
                 }
+        }
+        .onAppear {
+            PCDiscovery.shared.start()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                PCDiscovery.shared.restart()
+            }
         }
     }
 }
@@ -1549,15 +1752,14 @@ struct DashboardView: View {
 
 struct DashboardWebView: UIViewRepresentable {
 
-    let urlString = "http://192.168.1.37:8888/"
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeUIView(context: Context) -> WKWebView {
 
         let webView = WKWebView()
-
-        if let url = URL(string: urlString) {
-            webView.load(URLRequest(url: url))
-        }
+        context.coordinator.attach(webView)
 
         return webView
     }
@@ -1565,7 +1767,56 @@ struct DashboardWebView: UIViewRepresentable {
     func updateUIView(
         _ uiView: WKWebView,
         context: Context
-    ) {}
+    ) {
+        context.coordinator.reloadIfNeeded()
+    }
+
+    /// Carga la URL del PC descubierto y la recarga si el descubrimiento
+    /// encuentra otra IP (el router cambia las direcciones al reiniciar).
+    final class Coordinator {
+
+        private weak var webView: WKWebView?
+        private var lastURL = ""
+        private var observer: NSObjectProtocol?
+
+        init() {
+            observer = NotificationCenter.default.addObserver(
+                forName: PCDiscovery.foundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.reloadIfNeeded()
+            }
+        }
+
+        deinit {
+            if let observer = observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        func attach(_ webView: WKWebView) {
+            self.webView = webView
+            reloadIfNeeded()
+        }
+
+        func reloadIfNeeded() {
+
+            guard let webView = webView else { return }
+
+            let target = SimtrackNetwork.dashboardURL
+
+            if target == lastURL {
+                return
+            }
+
+            lastURL = target
+
+            if let url = URL(string: target) {
+                webView.load(URLRequest(url: url))
+            }
+        }
+    }
 }
 
 // MARK: - UDPClient
@@ -1573,27 +1824,42 @@ struct DashboardWebView: UIViewRepresentable {
 class UDPClient {
 
     private var connection: NWConnection?
+    private var currentIP = ""
 
-    private let targetIP = SimtrackNetwork.pcIP
     private let targetPort = SimtrackNetwork.trackingPort
 
     init() {
+        refreshConnection()
+    }
 
-        let host = NWEndpoint.Host(targetIP)
-        let port = NWEndpoint.Port(rawValue: targetPort)!
+    /// Recrea la conexión si el descubrimiento ha cambiado la IP del PC.
+    private func refreshConnection() {
 
-        connection = NWConnection(
-            host: host,
+        let target = SimtrackNetwork.pcIP
+
+        if target == currentIP && connection != nil {
+            return
+        }
+
+        connection?.cancel()
+        currentIP = target
+
+        guard let port = NWEndpoint.Port(rawValue: targetPort) else {
+            return
+        }
+
+        let newConnection = NWConnection(
+            host: NWEndpoint.Host(target),
             port: port,
             using: .udp
         )
 
-        connection?.stateUpdateHandler = { state in
+        newConnection.stateUpdateHandler = { state in
 
             switch state {
 
             case .ready:
-                print("UDP tracking conectado correctamente")
+                print("UDP tracking conectado a \(target)")
 
             case .failed(let error):
                 print("Error de conexión UDP: \(error)")
@@ -1603,7 +1869,8 @@ class UDPClient {
             }
         }
 
-        connection?.start(queue: .global())
+        newConnection.start(queue: .global())
+        connection = newConnection
     }
 
     func send(
@@ -1616,6 +1883,12 @@ class UDPClient {
             roll: Float
         )
     ) {
+
+        refreshConnection()
+
+        guard let connection = connection else {
+            return
+        }
 
         var data = Data()
 

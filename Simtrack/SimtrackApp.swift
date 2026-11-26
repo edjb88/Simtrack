@@ -9,6 +9,10 @@ import SwiftUI
 
 @main
 struct SimtrackApp: App {
+    init() {
+        PCDiscovery.shared.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
