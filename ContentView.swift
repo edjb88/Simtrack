@@ -1,4 +1,3 @@
-cat > ContentView.swift << 'EOF'
 import SwiftUI
 import ARKit
 import SceneKit
@@ -77,4 +76,3 @@ struct DashboardView: UIViewRepresentable {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View { ContentView() }
 }
-EOF
