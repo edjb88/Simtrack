@@ -12,7 +12,6 @@ import QuartzCore
 // MARK: - Mesh Colors
 
 enum MeshColor: String, CaseIterable, Identifiable {
-
     case green
     case cyan
     case white
@@ -36,14 +35,22 @@ enum MeshColor: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Pose Sensitivity
+
+struct PoseSensitivity {
+    var x: Float = 1.0
+    var y: Float = 1.0
+    var z: Float = 1.0
+    var yaw: Float = 1.0
+    var pitch: Float = 1.0
+    var roll: Float = 1.0
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
-
     var body: some View {
-
         TabView {
-
             TrackingView()
                 .tabItem {
                     Label("Tracking", systemImage: "faceid")
@@ -59,7 +66,6 @@ struct ContentView: View {
                     Label("Dashboard", systemImage: "speedometer")
                 }
         }
-        // No forzamos el esquema: iOS decide entre claro y oscuro.
     }
 }
 
@@ -71,10 +77,33 @@ struct TrackingView: View {
 
     @State private var showMesh = true
     @State private var showMarkers = true
-
     @State private var selectedMeshColor: MeshColor = .green
 
     @State private var poseText = "Esperando seguimiento facial..."
+    @State private var trackingActive = false
+
+    @State private var recenterToken = 0
+
+    @State private var sensitivityX = 1.0
+    @State private var sensitivityY = 1.0
+    @State private var sensitivityZ = 1.0
+
+    @State private var sensitivityYaw = 1.0
+    @State private var sensitivityPitch = 1.0
+    @State private var sensitivityRoll = 1.0
+
+    @State private var showCalibration = true
+
+    private var sensitivity: PoseSensitivity {
+        PoseSensitivity(
+            x: Float(sensitivityX),
+            y: Float(sensitivityY),
+            z: Float(sensitivityZ),
+            yaw: Float(sensitivityYaw),
+            pitch: Float(sensitivityPitch),
+            roll: Float(sensitivityRoll)
+        )
+    }
 
     var body: some View {
 
@@ -84,15 +113,23 @@ struct TrackingView: View {
                 showMesh: showMesh,
                 showMarkers: showMarkers,
                 meshColor: selectedMeshColor.uiColor,
+                sensitivity: sensitivity,
+                recenterToken: recenterToken,
                 onPoseUpdate: { value in
                     poseText = value
+                    trackingActive = true
+                },
+                onTrackingLost: {
+                    trackingActive = false
+                    poseText = "Seguimiento facial perdido..."
                 }
             )
             .ignoresSafeArea(edges: .top)
 
             VStack(spacing: 0) {
 
-                // Panel superior de controles
+                // MARK: Top Controls
+
                 VStack(alignment: .leading, spacing: 12) {
 
                     HStack {
@@ -113,18 +150,15 @@ struct TrackingView: View {
                         .foregroundStyle(.secondary)
 
                         Circle()
-                            .fill(.green)
-                            .frame(width: 8, height: 8)
+                            .fill(trackingActive ? .green : .orange)
+                            .frame(width: 9, height: 9)
                     }
 
                     Divider()
 
-                    Toggle(
-                        "Malla facial",
-                        isOn: $showMesh
-                    )
-                    .font(.subheadline)
-                    .tint(.green)
+                    Toggle("Malla facial", isOn: $showMesh)
+                        .font(.subheadline)
+                        .tint(.green)
 
                     Toggle(
                         "Marcadores de ojos y nariz",
@@ -146,9 +180,7 @@ struct TrackingView: View {
                                 "Color de malla",
                                 selection: $selectedMeshColor
                             ) {
-
                                 ForEach(MeshColor.allCases) { color in
-
                                     Text(color.title)
                                         .tag(color)
                                 }
@@ -163,46 +195,191 @@ struct TrackingView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                // Panel inferior de telemetría
-                VStack(alignment: .leading, spacing: 10) {
+                // MARK: Bottom Panel
 
-                    HStack {
+                ScrollView {
 
-                        Text("DATOS DE SEGUIMIENTO")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 12) {
 
-                        Spacer()
+                        // Telemetry
 
-                        Text("LIVE")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundStyle(.green)
+                        VStack(alignment: .leading, spacing: 10) {
+
+                            HStack {
+
+                                Text("DATOS DE SEGUIMIENTO")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.secondary)
+
+                                Spacer()
+
+                                Text(trackingActive ? "LIVE" : "SIN SEÑAL")
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(
+                                        trackingActive ? .green : .orange
+                                    )
+                            }
+
+                            Divider()
+
+                            Text(poseText)
+                                .font(.system(
+                                    size: 12,
+                                    weight: .medium,
+                                    design: .monospaced
+                                ))
+                                .lineSpacing(5)
+                                .foregroundStyle(.primary)
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .leading
+                                )
+                        }
+                        .padding(14)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                        // Recenter
+
+                        Button {
+
+                            recenterToken += 1
+
+                        } label: {
+
+                            Label(
+                                "RECENTRAR CABEZA",
+                                systemImage: "scope"
+                            )
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.blue)
+                        .disabled(!trackingActive)
+
+                        // Sensitivity calibration
+
+                        VStack(alignment: .leading, spacing: 12) {
+
+                            DisclosureGroup(
+                                isExpanded: $showCalibration
+                            ) {
+
+                                VStack(spacing: 14) {
+
+                                    sensitivityControl(
+                                        "X · Movimiento lateral",
+                                        value: $sensitivityX
+                                    )
+
+                                    sensitivityControl(
+                                        "Y · Movimiento vertical",
+                                        value: $sensitivityY
+                                    )
+
+                                    sensitivityControl(
+                                        "Z · Acercar / alejar",
+                                        value: $sensitivityZ
+                                    )
+
+                                    Divider()
+
+                                    sensitivityControl(
+                                        "Yaw · Girar izquierda / derecha",
+                                        value: $sensitivityYaw
+                                    )
+
+                                    sensitivityControl(
+                                        "Pitch · Mirar arriba / abajo",
+                                        value: $sensitivityPitch
+                                    )
+
+                                    sensitivityControl(
+                                        "Roll · Inclinar cabeza",
+                                        value: $sensitivityRoll
+                                    )
+
+                                    Button {
+
+                                        sensitivityX = 1.0
+                                        sensitivityY = 1.0
+                                        sensitivityZ = 1.0
+
+                                        sensitivityYaw = 1.0
+                                        sensitivityPitch = 1.0
+                                        sensitivityRoll = 1.0
+
+                                    } label: {
+
+                                        Label(
+                                            "Restablecer sensibilidades",
+                                            systemImage: "arrow.counterclockwise"
+                                        )
+                                        .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                .padding(.top, 12)
+
+                            } label: {
+
+                                Label(
+                                    "CALIBRACIÓN DE SENSIBILIDAD",
+                                    systemImage: "slider.horizontal.3"
+                                )
+                                .font(.caption)
+                                .fontWeight(.bold)
+                            }
+                        }
+                        .padding(14)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
-
-                    Divider()
-
-                    Text(poseText)
-                        .font(.system(
-                            size: 12,
-                            weight: .medium,
-                            design: .monospaced
-                        ))
-                        .lineSpacing(5)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
-                .padding(14)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .frame(maxHeight: 370)
             }
         }
         .background(Color(uiColor: .systemBackground))
+    }
+
+    // MARK: Sensitivity Slider
+
+    private func sensitivityControl(
+        _ title: String,
+        value: Binding<Double>
+    ) -> some View {
+
+        VStack(alignment: .leading, spacing: 4) {
+
+            HStack {
+
+                Text(title)
+                    .font(.caption)
+                    .fontWeight(.medium)
+
+                Spacer()
+
+                Text(String(format: "%.1fx", value.wrappedValue))
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .monospacedDigit()
+            }
+
+            Slider(
+                value: value,
+                in: 0.1...3.0,
+                step: 0.1
+            )
+            .tint(.blue)
+        }
     }
 }
 
@@ -214,7 +391,11 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
     let showMarkers: Bool
     let meshColor: UIColor
 
+    let sensitivity: PoseSensitivity
+    let recenterToken: Int
+
     let onPoseUpdate: (String) -> Void
+    let onTrackingLost: () -> Void
 
     func makeUIView(context: Context) -> ARSCNView {
 
@@ -225,29 +406,21 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         sceneView.backgroundColor = .black
 
         guard ARFaceTrackingConfiguration.isSupported else {
-
             print("Face Tracking no soportado")
-
             return sceneView
         }
 
         guard sceneView.device != nil else {
-
             print("No se ha podido obtener el dispositivo Metal")
-
             return sceneView
         }
 
         let configuration = ARFaceTrackingConfiguration()
-
         configuration.isLightEstimationEnabled = true
 
         sceneView.session.run(
             configuration,
-            options: [
-                .resetTracking,
-                .removeExistingAnchors
-            ]
+            options: [.resetTracking, .removeExistingAnchors]
         )
 
         return sceneView
@@ -261,13 +434,17 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         context.coordinator.updateSettings(
             showMesh: showMesh,
             showMarkers: showMarkers,
-            meshColor: meshColor
+            meshColor: meshColor,
+            sensitivity: sensitivity,
+            recenterToken: recenterToken
         )
     }
 
     func makeCoordinator() -> Coordinator {
-
-        Coordinator(onPoseUpdate: onPoseUpdate)
+        Coordinator(
+            onPoseUpdate: onPoseUpdate,
+            onTrackingLost: onTrackingLost
+        )
     }
 
     // MARK: - Coordinator
@@ -277,6 +454,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         private let udpClient = UDPClient()
 
         private let onPoseUpdate: (String) -> Void
+        private let onTrackingLost: () -> Void
 
         private weak var trackedFaceNode: SCNNode?
 
@@ -284,16 +462,27 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
         private var showMesh = true
         private var showMarkers = true
-
         private var meshColor: UIColor = .systemGreen
+
+        private var sensitivity = PoseSensitivity()
+
+        private var lastRecenterToken = 0
+        private var recenterPending = false
+
+        private var baselinePosition: SIMD3<Float>?
+        private var baselineEuler: SIMD3<Float>?
 
         private let markerRadius: CGFloat = 0.006
 
         private var lastTelemetryUpdate: TimeInterval = 0
 
-        init(onPoseUpdate: @escaping (String) -> Void) {
+        init(
+            onPoseUpdate: @escaping (String) -> Void,
+            onTrackingLost: @escaping () -> Void
+        ) {
 
             self.onPoseUpdate = onPoseUpdate
+            self.onTrackingLost = onTrackingLost
 
             super.init()
         }
@@ -303,12 +492,21 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         func updateSettings(
             showMesh: Bool,
             showMarkers: Bool,
-            meshColor: UIColor
+            meshColor: UIColor,
+            sensitivity: PoseSensitivity,
+            recenterToken: Int
         ) {
 
             self.showMesh = showMesh
             self.showMarkers = showMarkers
             self.meshColor = meshColor
+            self.sensitivity = sensitivity
+
+            if recenterToken != lastRecenterToken {
+
+                lastRecenterToken = recenterToken
+                recenterPending = true
+            }
 
             guard let node = trackedFaceNode else {
                 return
@@ -376,31 +574,25 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     fillMesh: false
                 )
             else {
-
                 print("No se pudo crear la geometría facial")
-
                 return
             }
 
             trackedFaceNode = node
 
-            // Malla facial
+            // Face mesh
 
             faceGeometry.firstMaterial?.fillMode = .lines
-
             faceGeometry.firstMaterial?.lightingModel = .constant
-
             faceGeometry.firstMaterial?.diffuse.contents = meshColor
-
             faceGeometry.firstMaterial?.isDoubleSided = true
 
             let meshNode = SCNNode(geometry: faceGeometry)
-
             meshNode.name = "faceMesh"
 
             node.addChildNode(meshNode)
 
-            // Nariz
+            // Nose marker
 
             let noseMarker = createMarker(
                 color: .systemRed,
@@ -408,10 +600,9 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             )
 
             noseMarker.name = "noseMarker"
-
             node.addChildNode(noseMarker)
 
-            // Ojo izquierdo
+            // Left eye
 
             let leftEyeMarker = createMarker(
                 color: .systemBlue,
@@ -419,10 +610,9 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             )
 
             leftEyeMarker.name = "leftEyeMarker"
-
             node.addChildNode(leftEyeMarker)
 
-            // Ojo derecho
+            // Right eye
 
             let rightEyeMarker = createMarker(
                 color: .systemYellow,
@@ -430,10 +620,9 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             )
 
             rightEyeMarker.name = "rightEyeMarker"
-
             node.addChildNode(rightEyeMarker)
 
-            // Localizar vértice de nariz
+            // Nose vertex
 
             let vertices = faceAnchor.geometry.vertices
 
@@ -462,7 +651,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
 
             let transform = faceAnchor.transform
 
-            // Actualizar malla
+            // Update mesh
 
             if let meshNode = node.childNode(
                 withName: "faceMesh",
@@ -473,7 +662,7 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 geometry.update(from: faceAnchor.geometry)
             }
 
-            // Actualizar nariz
+            // Update nose
 
             if let noseMarker = node.childNode(
                 withName: "noseMarker",
@@ -484,12 +673,11 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 let vertices = faceAnchor.geometry.vertices
 
                 if index < vertices.count {
-
                     noseMarker.simdPosition = vertices[index]
                 }
             }
 
-            // Actualizar ojo izquierdo
+            // Update eyes
 
             if let leftEyeMarker = node.childNode(
                 withName: "leftEyeMarker",
@@ -500,8 +688,6 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     faceAnchor.leftEyeTransform
             }
 
-            // Actualizar ojo derecho
-
             if let rightEyeMarker = node.childNode(
                 withName: "rightEyeMarker",
                 recursively: false
@@ -511,34 +697,81 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     faceAnchor.rightEyeTransform
             }
 
-            // Posición de cabeza
+            // Raw position
 
-            let x = transform.columns.3.x
-            let y = transform.columns.3.y
-            let z = transform.columns.3.z
+            let position = SIMD3<Float>(
+                transform.columns.3.x,
+                transform.columns.3.y,
+                transform.columns.3.z
+            )
 
-            // Orientación
+            // Raw rotation
 
             let euler = transform.eulerAngles
 
-            let yaw = euler.x
-            let pitch = euler.y
-            let roll = euler.z
+            // First frame establishes initial centre
 
-            // Envío UDP
+            if baselinePosition == nil || baselineEuler == nil {
+
+                baselinePosition = position
+                baselineEuler = euler
+            }
+
+            // Recenter on next valid tracking frame
+
+            if recenterPending {
+
+                baselinePosition = position
+                baselineEuler = euler
+
+                recenterPending = false
+
+                print("Simtrack: recentrado realizado")
+            }
+
+            guard
+                let originPosition = baselinePosition,
+                let originEuler = baselineEuler
+            else {
+                return
+            }
+
+            // Relative position
+
+            let relativePosition = position - originPosition
+
+            // Relative rotation with angle wrapping
+
+            let relativeEuler = SIMD3<Float>(
+                normalizedAngle(euler.x - originEuler.x),
+                normalizedAngle(euler.y - originEuler.y),
+                normalizedAngle(euler.z - originEuler.z)
+            )
+
+            // Apply individual sensitivities
+
+            let outputX = relativePosition.x * sensitivity.x
+            let outputY = relativePosition.y * sensitivity.y
+            let outputZ = relativePosition.z * sensitivity.z
+
+            let outputYaw = relativeEuler.x * sensitivity.yaw
+            let outputPitch = relativeEuler.y * sensitivity.pitch
+            let outputRoll = relativeEuler.z * sensitivity.roll
+
+            // Send UDP
 
             udpClient.send(
                 pose: (
-                    x: x,
-                    y: y,
-                    z: z,
-                    yaw: yaw,
-                    pitch: pitch,
-                    roll: roll
+                    x: outputX,
+                    y: outputY,
+                    z: outputZ,
+                    yaw: outputYaw,
+                    pitch: outputPitch,
+                    roll: outputRoll
                 )
             )
 
-            // Telemetría visual, limitada a 10 actualizaciones por segundo
+            // Update telemetry at 10 Hz
 
             let currentTime = CACurrentMediaTime()
 
@@ -549,18 +782,17 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 let telemetry = String(
                     format:
                     "X: %+.2f cm    Y: %+.2f cm    Z: %+.2f cm\nYaw: %+.1f°    Pitch: %+.1f°    Roll: %+.1f°",
-                    x * 100,
-                    y * 100,
-                    z * 100,
-                    yaw * 180 / .pi,
-                    pitch * 180 / .pi,
-                    roll * 180 / .pi
+                    outputX * 100,
+                    outputY * 100,
+                    outputZ * 100,
+                    outputYaw * 180 / .pi,
+                    outputPitch * 180 / .pi,
+                    outputRoll * 180 / .pi
                 )
 
-                DispatchQueue.main.async { [weak self] in
-
+                DispatchQueue.main.async { [weak self] in {
                     self?.onPoseUpdate(telemetry)
-                }
+                }}
             }
         }
 
@@ -580,12 +812,19 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                 trackedFaceNode = nil
             }
 
-            DispatchQueue.main.async { [weak self] in
+            baselinePosition = nil
+            baselineEuler = nil
 
-                self?.onPoseUpdate(
-                    "Seguimiento facial perdido..."
-                )
-            }
+            DispatchQueue.main.async { [weak self] in {
+                self?.onTrackingLost()
+            }}
+        }
+
+        // MARK: Angle Normalization
+
+        private func normalizedAngle(_ angle: Float) -> Float {
+
+            atan2(sin(angle), cos(angle))
         }
 
         // MARK: Marker Creation
@@ -596,13 +835,10 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
         ) -> SCNNode {
 
             let sphere = SCNSphere(radius: radius)
-
             sphere.segmentCount = 12
 
             sphere.firstMaterial?.diffuse.contents = color
-
             sphere.firstMaterial?.emission.contents = color
-
             sphere.firstMaterial?.lightingModel = .constant
 
             return SCNNode(geometry: sphere)
@@ -633,7 +869,7 @@ struct HeadphonesView: View {
             .padding()
 
             Text("(En desarrollo)")
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding()
     }
@@ -650,7 +886,6 @@ struct DashboardView: UIViewRepresentable {
         let webView = WKWebView()
 
         if let url = URL(string: urlString) {
-
             webView.load(URLRequest(url: url))
         }
 
@@ -670,13 +905,11 @@ class UDPClient {
     private var connection: NWConnection?
 
     private let targetIP = "172.20.10.12"
-
     private let targetPort: UInt16 = 4242
 
     init() {
 
         let host = NWEndpoint.Host(targetIP)
-
         let port = NWEndpoint.Port(rawValue: targetPort)!
 
         connection = NWConnection(
@@ -690,15 +923,12 @@ class UDPClient {
             switch state {
 
             case .ready:
-
                 print("UDP conectado correctamente")
 
             case .failed(let error):
-
                 print("Error de conexión UDP: \(error)")
 
             default:
-
                 break
             }
         }
@@ -719,7 +949,7 @@ class UDPClient {
 
         var data = Data()
 
-        // Posición en centímetros y rotación en grados
+        // Centímetros y grados
 
         let values: [Double] = [
 
@@ -737,7 +967,6 @@ class UDPClient {
             var littleEndianValue = value.bitPattern.littleEndian
 
             withUnsafeBytes(of: &littleEndianValue) {
-
                 data.append(contentsOf: $0)
             }
         }
@@ -747,7 +976,6 @@ class UDPClient {
             completion: .contentProcessed { error in
 
                 if let error = error {
-
                     print("Error enviando UDP: \(error)")
                 }
             }
@@ -788,7 +1016,6 @@ extension simd_float4x4 {
 struct ContentView_Previews: PreviewProvider {
 
     static var previews: some View {
-
         ContentView()
     }
 }
