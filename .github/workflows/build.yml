@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: Checkout del codigo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verificar version de Xcode
         run: xcodebuild -version
@@ -37,7 +37,7 @@ jobs:
           unzip -l Simtrack-unsigned.ipa
 
       - name: Subir el ipa como artefacto
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Simtrack-unsigned-ipa
           path: Simtrack-unsigned.ipa
