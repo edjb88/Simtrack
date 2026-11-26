@@ -431,6 +431,8 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.simtrack.Simtrack;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Se necesita acceso a la red local para comunicarse con el PC.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Se necesita acceso a la camara para el seguimiento de cabeza.";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -460,6 +462,8 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.simtrack.Simtrack;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Se necesita acceso a la red local para comunicarse con el PC.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Se necesita acceso a la camara para el seguimiento de cabeza.";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -479,6 +483,8 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.simtrack.SimtrackTests;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Se necesita acceso a la red local para comunicarse con el PC.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Se necesita acceso a la camara para el seguimiento de cabeza.";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -499,6 +505,8 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.simtrack.SimtrackTests;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Se necesita acceso a la red local para comunicarse con el PC.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Se necesita acceso a la camara para el seguimiento de cabeza.";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -517,6 +525,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.simtrack.SimtrackUITests;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Se necesita acceso a la red local para comunicarse con el PC.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Se necesita acceso a la camara para el seguimiento de cabeza.";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
@@ -535,6 +545,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.simtrack.SimtrackUITests;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Se necesita acceso a la red local para comunicarse con el PC.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Se necesita acceso a la camara para el seguimiento de cabeza.";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;

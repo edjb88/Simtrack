@@ -1,21 +1,23 @@
-//
-//  ContentView.swift
-//  Simtrack
-//
-//  Created by Eduard Juan on 26/11/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundColor(.accentColor)
-            Text("Hello, world!")
+        TabView {
+            TrackingView()
+                .tabItem {
+                    Label("Tracking", systemImage: "faceid")
+                }
+            
+            HeadphonesView()
+                .tabItem {
+                    Label("Auriculares", systemImage: "headphones")
+                }
+            
+            DashboardView()
+                .tabItem {
+                    Label("Dashboard", systemImage: "speedometer")
+                }
         }
-        .padding()
     }
 }
 
