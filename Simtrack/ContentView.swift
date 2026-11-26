@@ -892,7 +892,7 @@ struct HeadphonesView: View {
 
 struct DashboardView: UIViewRepresentable {
 
-    let urlString = "http://172.20.10.12:8888/"
+    let urlString = "http://192.168.1.37:8888/"
 
     func makeUIView(context: Context) -> WKWebView {
 
