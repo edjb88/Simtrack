@@ -1,17 +1,49 @@
 
 import SwiftUI
+import UIKit
 import ARKit
 import SceneKit
 import WebKit
 import Network
 import Metal
 import simd
+import QuartzCore
+
+// MARK: - Mesh Colors
+
+enum MeshColor: String, CaseIterable, Identifiable {
+
+    case green
+    case cyan
+    case white
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .green: return "Verde"
+        case .cyan: return "Cian"
+        case .white: return "Blanco"
+        }
+    }
+
+    var uiColor: UIColor {
+        switch self {
+        case .green: return .systemGreen
+        case .cyan: return .cyan
+        case .white: return .white
+        }
+    }
+}
 
 // MARK: - ContentView
 
 struct ContentView: View {
+
     var body: some View {
+
         TabView {
+
             TrackingView()
                 .tabItem {
                     Label("Tracking", systemImage: "faceid")
@@ -27,12 +59,162 @@ struct ContentView: View {
                     Label("Dashboard", systemImage: "speedometer")
                 }
         }
+        // No forzamos el esquema: iOS decide entre claro y oscuro.
     }
 }
 
 // MARK: - TrackingView
 
-struct TrackingView: UIViewRepresentable {
+struct TrackingView: View {
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    @State private var showMesh = true
+    @State private var showMarkers = true
+
+    @State private var selectedMeshColor: MeshColor = .green
+
+    @State private var poseText = "Esperando seguimiento facial..."
+
+    var body: some View {
+
+        ZStack {
+
+            FaceTrackingRepresentable(
+                showMesh: showMesh,
+                showMarkers: showMarkers,
+                meshColor: selectedMeshColor.uiColor,
+                onPoseUpdate: { value in
+                    poseText = value
+                }
+            )
+            .ignoresSafeArea(edges: .top)
+
+            VStack(spacing: 0) {
+
+                // Panel superior de controles
+                VStack(alignment: .leading, spacing: 12) {
+
+                    HStack {
+
+                        Label("SIMTRACK", systemImage: "faceid")
+                            .font(.headline)
+                            .fontWeight(.bold)
+
+                        Spacer()
+
+                        Text(
+                            colorScheme == .dark
+                            ? "MODO NOCHE"
+                            : "MODO DÍA"
+                        )
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 8, height: 8)
+                    }
+
+                    Divider()
+
+                    Toggle(
+                        "Malla facial",
+                        isOn: $showMesh
+                    )
+                    .font(.subheadline)
+                    .tint(.green)
+
+                    Toggle(
+                        "Marcadores de ojos y nariz",
+                        isOn: $showMarkers
+                    )
+                    .font(.subheadline)
+                    .tint(.green)
+
+                    if showMesh {
+
+                        VStack(alignment: .leading, spacing: 6) {
+
+                            Text("COLOR DE MALLA")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.secondary)
+
+                            Picker(
+                                "Color de malla",
+                                selection: $selectedMeshColor
+                            ) {
+
+                                ForEach(MeshColor.allCases) { color in
+
+                                    Text(color.title)
+                                        .tag(color)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                    }
+                }
+                .padding(14)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+
+                Spacer()
+
+                // Panel inferior de telemetría
+                VStack(alignment: .leading, spacing: 10) {
+
+                    HStack {
+
+                        Text("DATOS DE SEGUIMIENTO")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Text("LIVE")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.green)
+                    }
+
+                    Divider()
+
+                    Text(poseText)
+                        .font(.system(
+                            size: 12,
+                            weight: .medium,
+                            design: .monospaced
+                        ))
+                        .lineSpacing(5)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(14)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+    }
+}
+
+// MARK: - Face Tracking Representable
+
+struct FaceTrackingRepresentable: UIViewRepresentable {
+
+    let showMesh: Bool
+    let showMarkers: Bool
+    let meshColor: UIColor
+
+    let onPoseUpdate: (String) -> Void
 
     func makeUIView(context: Context) -> ARSCNView {
 
@@ -43,30 +225,49 @@ struct TrackingView: UIViewRepresentable {
         sceneView.backgroundColor = .black
 
         guard ARFaceTrackingConfiguration.isSupported else {
+
             print("Face Tracking no soportado")
+
             return sceneView
         }
 
         guard sceneView.device != nil else {
+
             print("No se ha podido obtener el dispositivo Metal")
+
             return sceneView
         }
 
         let configuration = ARFaceTrackingConfiguration()
+
         configuration.isLightEstimationEnabled = true
 
         sceneView.session.run(
             configuration,
-            options: [.resetTracking, .removeExistingAnchors]
+            options: [
+                .resetTracking,
+                .removeExistingAnchors
+            ]
         )
 
         return sceneView
     }
 
-    func updateUIView(_ uiView: ARSCNView, context: Context) {}
+    func updateUIView(
+        _ uiView: ARSCNView,
+        context: Context
+    ) {
+
+        context.coordinator.updateSettings(
+            showMesh: showMesh,
+            showMarkers: showMarkers,
+            meshColor: meshColor
+        )
+    }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+
+        Coordinator(onPoseUpdate: onPoseUpdate)
     }
 
     // MARK: - Coordinator
@@ -75,12 +276,87 @@ struct TrackingView: UIViewRepresentable {
 
         private let udpClient = UDPClient()
 
+        private let onPoseUpdate: (String) -> Void
+
+        private weak var trackedFaceNode: SCNNode?
+
         private var noseVertexIndex: Int?
 
-        // Tamaño de los marcadores
+        private var showMesh = true
+        private var showMarkers = true
+
+        private var meshColor: UIColor = .systemGreen
+
         private let markerRadius: CGFloat = 0.006
 
-        // MARK: Face added
+        private var lastTelemetryUpdate: TimeInterval = 0
+
+        init(onPoseUpdate: @escaping (String) -> Void) {
+
+            self.onPoseUpdate = onPoseUpdate
+
+            super.init()
+        }
+
+        // MARK: Settings
+
+        func updateSettings(
+            showMesh: Bool,
+            showMarkers: Bool,
+            meshColor: UIColor
+        ) {
+
+            self.showMesh = showMesh
+            self.showMarkers = showMarkers
+            self.meshColor = meshColor
+
+            guard let node = trackedFaceNode else {
+                return
+            }
+
+            applySettings(to: node)
+        }
+
+        private func applySettings(to node: SCNNode) {
+
+            if let meshNode = node.childNode(
+                withName: "faceMesh",
+                recursively: false
+            ) {
+
+                meshNode.isHidden = !showMesh
+
+                meshNode.geometry?
+                    .firstMaterial?
+                    .diffuse.contents = meshColor
+            }
+
+            if let noseMarker = node.childNode(
+                withName: "noseMarker",
+                recursively: false
+            ) {
+
+                noseMarker.isHidden = !showMarkers
+            }
+
+            if let leftEyeMarker = node.childNode(
+                withName: "leftEyeMarker",
+                recursively: false
+            ) {
+
+                leftEyeMarker.isHidden = !showMarkers
+            }
+
+            if let rightEyeMarker = node.childNode(
+                withName: "rightEyeMarker",
+                recursively: false
+            ) {
+
+                rightEyeMarker.isHidden = !showMarkers
+            }
+        }
+
+        // MARK: Face Added
 
         func renderer(
             _ renderer: SCNSceneRenderer,
@@ -100,61 +376,79 @@ struct TrackingView: UIViewRepresentable {
                     fillMesh: false
                 )
             else {
+
                 print("No se pudo crear la geometría facial")
+
                 return
             }
 
+            trackedFaceNode = node
+
             // Malla facial
+
             faceGeometry.firstMaterial?.fillMode = .lines
+
             faceGeometry.firstMaterial?.lightingModel = .constant
-            faceGeometry.firstMaterial?.diffuse.contents = UIColor.systemGreen
+
+            faceGeometry.firstMaterial?.diffuse.contents = meshColor
+
             faceGeometry.firstMaterial?.isDoubleSided = true
 
             let meshNode = SCNNode(geometry: faceGeometry)
+
             meshNode.name = "faceMesh"
 
             node.addChildNode(meshNode)
 
-            // Marcador de nariz
+            // Nariz
+
             let noseMarker = createMarker(
                 color: .systemRed,
                 radius: markerRadius * 1.5
             )
 
             noseMarker.name = "noseMarker"
+
             node.addChildNode(noseMarker)
 
-            // Marcador ojo izquierdo
+            // Ojo izquierdo
+
             let leftEyeMarker = createMarker(
                 color: .systemBlue,
                 radius: markerRadius
             )
 
             leftEyeMarker.name = "leftEyeMarker"
+
             node.addChildNode(leftEyeMarker)
 
-            // Marcador ojo derecho
+            // Ojo derecho
+
             let rightEyeMarker = createMarker(
                 color: .systemYellow,
                 radius: markerRadius
             )
 
             rightEyeMarker.name = "rightEyeMarker"
+
             node.addChildNode(rightEyeMarker)
 
-            // Localizamos el vértice más adelantado de la cara.
+            // Localizar vértice de nariz
+
             let vertices = faceAnchor.geometry.vertices
 
             noseVertexIndex = vertices.enumerated().max {
                 $0.element.z < $1.element.z
             }?.offset
 
+            applySettings(to: node)
+
             print("Malla facial creada correctamente")
-            print("Vértices de la cara: \(vertices.count)")
-            print("Vértice de nariz: \(noseVertexIndex ?? -1)")
+            print("Vértices: \(vertices.count)")
+            print("Vértice nariz: \(noseVertexIndex ?? -1)")
         }
 
-        // MARK: Face updated
+        // MARK: Face Updated
 
         func renderer(
             _ renderer: SCNSceneRenderer,
@@ -168,7 +462,8 @@ struct TrackingView: UIViewRepresentable {
 
             let transform = faceAnchor.transform
 
-            // Actualizar malla facial
+            // Actualizar malla
+
             if let meshNode = node.childNode(
                 withName: "faceMesh",
                 recursively: false
@@ -178,7 +473,8 @@ struct TrackingView: UIViewRepresentable {
                 geometry.update(from: faceAnchor.geometry)
             }
 
-            // Actualizar marcador de nariz
+            // Actualizar nariz
+
             if let noseMarker = node.childNode(
                 withName: "noseMarker",
                 recursively: false
@@ -188,41 +484,49 @@ struct TrackingView: UIViewRepresentable {
                 let vertices = faceAnchor.geometry.vertices
 
                 if index < vertices.count {
+
                     noseMarker.simdPosition = vertices[index]
                 }
             }
 
             // Actualizar ojo izquierdo
+
             if let leftEyeMarker = node.childNode(
                 withName: "leftEyeMarker",
                 recursively: false
             ) {
 
-                leftEyeMarker.simdTransform = faceAnchor.leftEyeTransform
+                leftEyeMarker.simdTransform =
+                    faceAnchor.leftEyeTransform
             }
 
             // Actualizar ojo derecho
+
             if let rightEyeMarker = node.childNode(
                 withName: "rightEyeMarker",
                 recursively: false
             ) {
 
-                rightEyeMarker.simdTransform = faceAnchor.rightEyeTransform
+                rightEyeMarker.simdTransform =
+                    faceAnchor.rightEyeTransform
             }
 
-            // Posición de la cabeza
+            // Posición de cabeza
+
             let x = transform.columns.3.x
             let y = transform.columns.3.y
             let z = transform.columns.3.z
 
-            // Orientación de la cabeza
+            // Orientación
+
             let euler = transform.eulerAngles
 
             let yaw = euler.x
             let pitch = euler.y
             let roll = euler.z
 
-            // Envío UDP al PC
+            // Envío UDP
+
             udpClient.send(
                 pose: (
                     x: x,
@@ -233,9 +537,58 @@ struct TrackingView: UIViewRepresentable {
                     roll: roll
                 )
             )
+
+            // Telemetría visual, limitada a 10 actualizaciones por segundo
+
+            let currentTime = CACurrentMediaTime()
+
+            if currentTime - lastTelemetryUpdate >= 0.1 {
+
+                lastTelemetryUpdate = currentTime
+
+                let telemetry = String(
+                    format:
+                    "X: %+.2f cm    Y: %+.2f cm    Z: %+.2f cm\nYaw: %+.1f°    Pitch: %+.1f°    Roll: %+.1f°",
+                    x * 100,
+                    y * 100,
+                    z * 100,
+                    yaw * 180 / .pi,
+                    pitch * 180 / .pi,
+                    roll * 180 / .pi
+                )
+
+                DispatchQueue.main.async { [weak self] in
+
+                    self?.onPoseUpdate(telemetry)
+                }
+            }
         }
 
-        // MARK: Marker creation
+        // MARK: Face Removed
+
+        func renderer(
+            _ renderer: SCNSceneRenderer,
+            didRemove node: SCNNode,
+            for anchor: ARAnchor
+        ) {
+
+            guard anchor is ARFaceAnchor else {
+                return
+            }
+
+            if trackedFaceNode === node {
+                trackedFaceNode = nil
+            }
+
+            DispatchQueue.main.async { [weak self] in
+
+                self?.onPoseUpdate(
+                    "Seguimiento facial perdido..."
+                )
+            }
+        }
+
+        // MARK: Marker Creation
 
         private func createMarker(
             color: UIColor,
@@ -247,12 +600,12 @@ struct TrackingView: UIViewRepresentable {
             sphere.segmentCount = 12
 
             sphere.firstMaterial?.diffuse.contents = color
+
             sphere.firstMaterial?.emission.contents = color
+
             sphere.firstMaterial?.lightingModel = .constant
 
-            let marker = SCNNode(geometry: sphere)
-
-            return marker
+            return SCNNode(geometry: sphere)
         }
     }
 }
@@ -280,7 +633,7 @@ struct HeadphonesView: View {
             .padding()
 
             Text("(En desarrollo)")
-                .foregroundColor(.gray)
+                .foregroundColor(.secondary)
         }
         .padding()
     }
@@ -297,13 +650,17 @@ struct DashboardView: UIViewRepresentable {
         let webView = WKWebView()
 
         if let url = URL(string: urlString) {
+
             webView.load(URLRequest(url: url))
         }
 
         return webView
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(
+        _ uiView: WKWebView,
+        context: Context
+    ) {}
 }
 
 // MARK: - UDPClient
@@ -313,11 +670,13 @@ class UDPClient {
     private var connection: NWConnection?
 
     private let targetIP = "172.20.10.12"
+
     private let targetPort: UInt16 = 4242
 
     init() {
 
         let host = NWEndpoint.Host(targetIP)
+
         let port = NWEndpoint.Port(rawValue: targetPort)!
 
         connection = NWConnection(
@@ -331,12 +690,15 @@ class UDPClient {
             switch state {
 
             case .ready:
+
                 print("UDP conectado correctamente")
 
             case .failed(let error):
+
                 print("Error de conexión UDP: \(error)")
 
             default:
+
                 break
             }
         }
@@ -358,6 +720,7 @@ class UDPClient {
         var data = Data()
 
         // Posición en centímetros y rotación en grados
+
         let values: [Double] = [
 
             Double(pose.x) * 100.0,
@@ -374,6 +737,7 @@ class UDPClient {
             var littleEndianValue = value.bitPattern.littleEndian
 
             withUnsafeBytes(of: &littleEndianValue) {
+
                 data.append(contentsOf: $0)
             }
         }
@@ -383,6 +747,7 @@ class UDPClient {
             completion: .contentProcessed { error in
 
                 if let error = error {
+
                     print("Error enviando UDP: \(error)")
                 }
             }
@@ -390,7 +755,7 @@ class UDPClient {
     }
 }
 
-// MARK: - Matrix Euler Angles Extension
+// MARK: - Matrix Euler Angles
 
 extension simd_float4x4 {
 
@@ -423,6 +788,7 @@ extension simd_float4x4 {
 struct ContentView_Previews: PreviewProvider {
 
     static var previews: some View {
+
         ContentView()
     }
 }
