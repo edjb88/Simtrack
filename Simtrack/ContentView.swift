@@ -1028,11 +1028,10 @@ struct DashboardWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
 
-        let webView = WKWebView()
+        // Recuperamos la implementación sencilla original.
+        // Dejamos que WKWebView gestione su fondo y sus insets por defecto.
 
-        webView.backgroundColor = .black
-        webView.isOpaque = false
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        let webView = WKWebView()
 
         if let url = URL(string: urlString) {
 
