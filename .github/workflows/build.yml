@@ -13,58 +13,13 @@ jobs:
       - name: Checkout del codigo
         uses: actions/checkout@v5
 
-      - name: Verificar version de Xcode
-        run: xcodebuild -version
-
-      - name: Diagnosticar archivos y proyecto
-        run: |
-          echo "=== Buscar todos los ContentView.swift ==="
-          find . -name "ContentView.swift" || true
-          echo "=== Primeras lineas de Simtrack/ContentView.swift ==="
-          head -30 Simtrack/ContentView.swift || true
-          echo "=== Referencias a ContentView en project.pbxproj ==="
-          grep -n "ContentView" Simtrack.xcodeproj/project.pbxproj || true
-
-
-cat > .github/workflows/build.yml << 'EOF'
-name: Build iOS App
-
-"on":
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout del codigo
-        uses: actions/checkout@v5
-
-      - name: Verificar version de Xcode
-        run: xcodebuild -version
-
-      - name: Diagnosticar archivos y proyecto
-        run: |
-          echo "=== Buscar todos los ContentView.swift ==="
-          find . -name "ContentView.swift" || true
-          echo "=== Primeras lineas de Simtrack/ContentView.swift ==="
-          head -30 Simtrack/ContentView.swift || true
-          echo "=== Referencias a ContentView en project.pbxproj ==="
-          grep -n "ContentView" Simtrack.xcodeproj/project.pbxproj || true
-
-      - name: Listar schemes disponibles
-        run: xcodebuild -list -project Simtrack.xcodeproj
-
       - name: Compilar la app sin firmar
-        run: |
-          xcodebuild clean build -project Simtrack.xcodeproj -scheme Simtrack -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath ./build
+        run: xcodebuild clean build -project Simtrack.xcodeproj -scheme Simtrack -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath ./build
 
       - name: Diagnostico del binario
         run: |
-          echo "Buscando cadenas del codigo nuevo en el binario:"
-          strings ./build/Build/Products/Release-iphoneos/Simtrack.app/Simtrack | grep -i "Tracking\|Auriculares\|Dashboard\|Cara" || echo "NO SE ENCONTRARON CADENAS DEL CODIGO NUEVO"
+          strings ./build/Build/Products/Release-iphoneos/Simtrack.app/Simtrack > /tmp/strings.txt
+          grep -qi "Tracking" /tmp/strings.txt && echo "OK: codigo nuevo presente" || echo "FALLO: codigo nuevo ausente"
 
       - name: Empaquetar el ipa sin firmar
         run: |
