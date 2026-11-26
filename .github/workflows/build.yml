@@ -18,14 +18,41 @@ jobs:
 
       - name: Diagnosticar archivos y proyecto
         run: |
-          echo "=== Archivos en la raiz ==="
-          ls -la
           echo "=== Buscar todos los ContentView.swift ==="
-          find . -name "ContentView.swift"
-          echo "=== Primeras lineas de ContentView.swift en la raiz ==="
-          head -30 ContentView.swift
+          find . -name "ContentView.swift" || true
+          echo "=== Primeras lineas de Simtrack/ContentView.swift ==="
+          head -30 Simtrack/ContentView.swift || true
           echo "=== Referencias a ContentView en project.pbxproj ==="
-          grep -n "ContentView" Simtrack.xcodeproj/project.pbxproj
+          grep -n "ContentView" Simtrack.xcodeproj/project.pbxproj || true
+
+
+cat > .github/workflows/build.yml << 'EOF'
+name: Build iOS App
+
+"on":
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout del codigo
+        uses: actions/checkout@v5
+
+      - name: Verificar version de Xcode
+        run: xcodebuild -version
+
+      - name: Diagnosticar archivos y proyecto
+        run: |
+          echo "=== Buscar todos los ContentView.swift ==="
+          find . -name "ContentView.swift" || true
+          echo "=== Primeras lineas de Simtrack/ContentView.swift ==="
+          head -30 Simtrack/ContentView.swift || true
+          echo "=== Referencias a ContentView en project.pbxproj ==="
+          grep -n "ContentView" Simtrack.xcodeproj/project.pbxproj || true
 
       - name: Listar schemes disponibles
         run: xcodebuild -list -project Simtrack.xcodeproj
