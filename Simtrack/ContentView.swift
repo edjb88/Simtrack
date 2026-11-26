@@ -1,6 +1,8 @@
+import SwiftUI
 import ARKit
 import SceneKit
 import WebKit
+import Network
 
 // MARK: - ContentView (Tab Bar)
 struct ContentView: View {
