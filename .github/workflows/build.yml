@@ -10,73 +10,33 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Checkout del código
+      - name: Checkout del codigo
         uses: actions/checkout@v4
 
-      - name: Verificar versión de Xcode (diagnóstico)
+      - name: Verificar version de Xcode
         run: xcodebuild -version
 
-      - name: Listar schemes disponibles (diagnóstico)
+      - name: Listar schemes disponibles
         run: xcodebuild -list -project Simtrack.xcodeproj
 
-      - name: Compilar la app (sin firmar)
+      - name: Compilar la app sin firmar
         run: |
-          xcodebuild clean build \
-            -project Simtrack.xcodeproj \
-            -scheme Simtrack \
+          xcodebuild clean build -project Simtrack.xcodeproj -scheme Simtrack -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath ./build
 
-cat > .github/workflows/build.yml << 'EOF'
-name: Build iOS App
-
-"on":
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout del código
-        uses: actions/checkout@v4
-
-      - name: Verificar versión de Xcode (diagnóstico)
-        run: xcodebuild -version
-
-      - name: Listar schemes disponibles (diagnóstico)
-        run: xcodebuild -list -project Simtrack.xcodeproj
-
-      - name: Compilar la app (sin firmar)
+      - name: Diagnostico del app generado
         run: |
-          xcodebuild clean build \
-            -project Simtrack.xcodeproj \
-            -scheme Simtrack \
-            -sdk iphoneos \
-            -configuration Release \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            -derivedDataPath ./build
-
-      - name: Diagnóstico del .app generado
-        run: |
-          echo "=== Contenido del .app ==="
           ls -la ./build/Build/Products/Release-iphoneos/Simtrack.app/
-          echo "=== Tamaño total del .app ==="
           du -sh ./build/Build/Products/Release-iphoneos/Simtrack.app/
 
-      - name: Empaquetar el .ipa (sin firmar)
+      - name: Empaquetar el ipa sin firmar
         run: |
           mkdir -p Payload
           cp -r ./build/Build/Products/Release-iphoneos/Simtrack.app Payload/
           zip -r Simtrack-unsigned.ipa Payload
-          echo "=== Tamaño del .ipa ==="
           ls -la Simtrack-unsigned.ipa
-          echo "=== Contenido del .ipa ==="
           unzip -l Simtrack-unsigned.ipa
 
-      - name: Subir el .ipa como artefacto
+      - name: Subir el ipa como artefacto
         uses: actions/upload-artifact@v4
         with:
           name: Simtrack-unsigned-ipa
