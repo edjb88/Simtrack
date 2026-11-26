@@ -83,6 +83,7 @@ struct TrackingView: View {
     @State private var trackingActive = false
 
     @State private var recenterToken = 0
+    @State private var showSettings = false
 
     @State private var sensitivityX = 1.0
     @State private var sensitivityY = 1.0
@@ -91,8 +92,6 @@ struct TrackingView: View {
     @State private var sensitivityYaw = 1.0
     @State private var sensitivityPitch = 1.0
     @State private var sensitivityRoll = 1.0
-
-    @State private var showCalibration = true
 
     private var sensitivity: PoseSensitivity {
         PoseSensitivity(
@@ -109,6 +108,7 @@ struct TrackingView: View {
 
         ZStack {
 
+            // La cámara ocupa toda la pantalla.
             FaceTrackingRepresentable(
                 showMesh: showMesh,
                 showMarkers: showMarkers,
@@ -124,233 +124,247 @@ struct TrackingView: View {
                     poseText = "Seguimiento facial perdido..."
                 }
             )
-            .ignoresSafeArea(edges: .top)
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
 
-                // MARK: Top Controls
+                // Barra superior mínima: título, estado y ajustes.
+                HStack(spacing: 12) {
 
-                VStack(alignment: .leading, spacing: 12) {
+                    Label("SIMTRACK", systemImage: "faceid")
+                        .font(.headline)
+                        .fontWeight(.bold)
 
-                    HStack {
+                    Spacer()
 
-                        Label("SIMTRACK", systemImage: "faceid")
-                            .font(.headline)
-                            .fontWeight(.bold)
+                    Circle()
+                        .fill(trackingActive ? Color.green : Color.orange)
+                        .frame(width: 9, height: 9)
 
-                        Spacer()
-
-                        Text(
-                            colorScheme == .dark
-                            ? "MODO NOCHE"
-                            : "MODO DÍA"
-                        )
+                    Text(trackingActive ? "LIVE" : "SIN SEÑAL")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .foregroundStyle(.secondary)
 
-                        Circle()
-                            .fill(trackingActive ? .green : .orange)
-                            .frame(width: 9, height: 9)
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 42, height: 42)
+                            .contentShape(Rectangle())
                     }
-
-                    Divider()
-
-                    Toggle("Malla facial", isOn: $showMesh)
-                        .font(.subheadline)
-                        .tint(.green)
-
-                    Toggle(
-                        "Marcadores de ojos y nariz",
-                        isOn: $showMarkers
-                    )
-                    .font(.subheadline)
-                    .tint(.green)
-
-                    if showMesh {
-
-                        VStack(alignment: .leading, spacing: 6) {
-
-                            Text("COLOR DE MALLA")
-                                .font(.caption2)
-                                .fontWeight(.bold)
-                                .foregroundStyle(.secondary)
-
-                            Picker(
-                                "Color de malla",
-                                selection: $selectedMeshColor
-                            ) {
-                                ForEach(MeshColor.allCases) { color in
-                                    Text(color.title)
-                                        .tag(color)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
-                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Ajustes de tracking")
                 }
-                .padding(14)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
 
-                Spacer(minLength: 8)
+                Spacer()
 
-                // MARK: Bottom Panel
+                // Único control principal visible sobre la cámara.
+                Button {
+                    recenterToken += 1
+                } label: {
+                    Label(
+                        "RECENTRAR CÁMARA",
+                        systemImage: "scope"
+                    )
+                    .font(.headline)
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .disabled(!trackingActive)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 14)
+            }
+        }
+        .background(Color.black)
+        .sheet(isPresented: $showSettings) {
+            settingsSheet
+        }
+    }
 
-                ScrollView {
+    // MARK: - Settings Sheet
 
+    private var settingsSheet: some View {
+
+        NavigationView {
+
+            ScrollView {
+
+                VStack(alignment: .leading, spacing: 20) {
+
+                    // Estado y apariencia.
                     VStack(alignment: .leading, spacing: 12) {
 
-                        // Telemetry
+                        Text("SEGUIMIENTO Y APARIENCIA")
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundStyle(.secondary)
 
-                        VStack(alignment: .leading, spacing: 10) {
+                        Toggle("Malla facial", isOn: $showMesh)
+                            .tint(.green)
 
-                            HStack {
+                        Toggle(
+                            "Marcadores de ojos y nariz",
+                            isOn: $showMarkers
+                        )
+                        .tint(.green)
 
-                                Text("DATOS DE SEGUIMIENTO")
+                        if showMesh {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("COLOR DE MALLA")
                                     .font(.caption)
                                     .fontWeight(.bold)
                                     .foregroundStyle(.secondary)
 
-                                Spacer()
-
-                                Text(trackingActive ? "LIVE" : "SIN SEÑAL")
-                                    .font(.caption2)
-                                    .fontWeight(.bold)
-                                    .foregroundStyle(
-                                        trackingActive ? .green : .orange
-                                    )
-                            }
-
-                            Divider()
-
-                            Text(poseText)
-                                .font(.system(
-                                    size: 12,
-                                    weight: .medium,
-                                    design: .monospaced
-                                ))
-                                .lineSpacing(5)
-                                .foregroundStyle(.primary)
-                                .frame(
-                                    maxWidth: .infinity,
-                                    alignment: .leading
-                                )
-                        }
-                        .padding(14)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                        // Recenter
-
-                        Button {
-
-                            recenterToken += 1
-
-                        } label: {
-
-                            Label(
-                                "RECENTRAR CABEZA",
-                                systemImage: "scope"
-                            )
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
-                        .disabled(!trackingActive)
-
-                        // Sensitivity calibration
-
-                        VStack(alignment: .leading, spacing: 12) {
-
-                            DisclosureGroup(
-                                isExpanded: $showCalibration
-                            ) {
-
-                                VStack(spacing: 14) {
-
-                                    sensitivityControl(
-                                        "X · Movimiento lateral",
-                                        value: $sensitivityX
-                                    )
-
-                                    sensitivityControl(
-                                        "Y · Movimiento vertical",
-                                        value: $sensitivityY
-                                    )
-
-                                    sensitivityControl(
-                                        "Z · Acercar / alejar",
-                                        value: $sensitivityZ
-                                    )
-
-                                    Divider()
-
-                                    sensitivityControl(
-                                        "Yaw · Girar izquierda / derecha",
-                                        value: $sensitivityYaw
-                                    )
-
-                                    sensitivityControl(
-                                        "Pitch · Mirar arriba / abajo",
-                                        value: $sensitivityPitch
-                                    )
-
-                                    sensitivityControl(
-                                        "Roll · Inclinar cabeza",
-                                        value: $sensitivityRoll
-                                    )
-
-                                    Button {
-
-                                        sensitivityX = 1.0
-                                        sensitivityY = 1.0
-                                        sensitivityZ = 1.0
-
-                                        sensitivityYaw = 1.0
-                                        sensitivityPitch = 1.0
-                                        sensitivityRoll = 1.0
-
-                                    } label: {
-
-                                        Label(
-                                            "Restablecer sensibilidades",
-                                            systemImage: "arrow.counterclockwise"
-                                        )
-                                        .frame(maxWidth: .infinity)
+                                Picker(
+                                    "Color de malla",
+                                    selection: $selectedMeshColor
+                                ) {
+                                    ForEach(MeshColor.allCases) { color in
+                                        Text(color.title)
+                                            .tag(color)
                                     }
-                                    .buttonStyle(.bordered)
                                 }
-                                .padding(.top, 12)
+                                .pickerStyle(.segmented)
+                            }
+                            .padding(.top, 4)
+                        }
 
-                            } label: {
+                        HStack {
+                            Text("Apariencia")
+                            Spacer()
+                            Text(colorScheme == .dark ? "Modo noche" : "Modo día")
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.subheadline)
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                                Label(
-                                    "CALIBRACIÓN DE SENSIBILIDAD",
-                                    systemImage: "slider.horizontal.3"
-                                )
+                    // Telemetría.
+                    VStack(alignment: .leading, spacing: 10) {
+
+                        HStack {
+                            Text("DATOS DE SEGUIMIENTO")
                                 .font(.caption)
                                 .fontWeight(.bold)
-                            }
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
+
+                            Text(trackingActive ? "LIVE" : "SIN SEÑAL")
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                                .foregroundStyle(
+                                    trackingActive ? Color.green : Color.orange
+                                )
                         }
-                        .padding(14)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                        Divider()
+
+                        Text(poseText)
+                            .font(.system(
+                                size: 12,
+                                weight: .medium,
+                                design: .monospaced
+                            ))
+                            .lineSpacing(5)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    // Sensibilidades.
+                    VStack(alignment: .leading, spacing: 14) {
+
+                        Label(
+                            "CALIBRACIÓN DE SENSIBILIDAD",
+                            systemImage: "slider.horizontal.3"
+                        )
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+
+                        sensitivityControl(
+                            "X · Movimiento lateral",
+                            value: $sensitivityX
+                        )
+
+                        sensitivityControl(
+                            "Y · Movimiento vertical",
+                            value: $sensitivityY
+                        )
+
+                        sensitivityControl(
+                            "Z · Acercar / alejar",
+                            value: $sensitivityZ
+                        )
+
+                        Divider()
+
+                        sensitivityControl(
+                            "Yaw · Girar izquierda / derecha",
+                            value: $sensitivityYaw
+                        )
+
+                        sensitivityControl(
+                            "Pitch · Mirar arriba / abajo",
+                            value: $sensitivityPitch
+                        )
+
+                        sensitivityControl(
+                            "Roll · Inclinar cabeza",
+                            value: $sensitivityRoll
+                        )
+
+                        Button {
+                            sensitivityX = 1.0
+                            sensitivityY = 1.0
+                            sensitivityZ = 1.0
+                            sensitivityYaw = 1.0
+                            sensitivityPitch = 1.0
+                            sensitivityRoll = 1.0
+                        } label: {
+                            Label(
+                                "Restablecer sensibilidades",
+                                systemImage: "arrow.counterclockwise"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 4)
+                    }
+                    .padding(16)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .frame(maxHeight: 370)
+                .padding(16)
             }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationBarTitle("Ajustes de tracking", displayMode: .inline)
+            .navigationBarItems(
+                trailing: Button("Cerrar") {
+                    showSettings = false
+                }
+            )
         }
-        .background(Color(uiColor: .systemBackground))
     }
 
-    // MARK: Sensitivity Slider
+    // MARK: - Sensitivity Slider
 
     private func sensitivityControl(
         _ title: String,
@@ -360,7 +374,6 @@ struct TrackingView: View {
         VStack(alignment: .leading, spacing: 4) {
 
             HStack {
-
                 Text(title)
                     .font(.caption)
                     .fontWeight(.medium)
@@ -790,9 +803,9 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
                     outputRoll * 180 / .pi
                 )
 
-            DispatchQueue.main.async { [weak self] in
-    self?.onPoseUpdate(telemetry)
-}
+                DispatchQueue.main.async { [weak self] in
+                    self?.onPoseUpdate(telemetry)
+                }
             }
         }
 
@@ -816,8 +829,8 @@ struct FaceTrackingRepresentable: UIViewRepresentable {
             baselineEuler = nil
 
             DispatchQueue.main.async { [weak self] in
-    self?.onTrackingLost()
-}
+                self?.onTrackingLost()
+            }
         }
 
         // MARK: Angle Normalization
