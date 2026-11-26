@@ -14,7 +14,17 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Compilar la app sin firmar
-        run: xcodebuild clean build -project Simtrack.xcodeproj -scheme Simtrack -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath ./build
+        run: |
+          set -o pipefail
+          xcodebuild clean build -project Simtrack.xcodeproj -scheme Simtrack -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath ./build 2>&1 | tee build.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::xcodebuild ha fallado"
+            grep -E "error:" build.log | head -20 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit "$status"
+          fi
 
       - name: Diagnostico del binario
         run: |
