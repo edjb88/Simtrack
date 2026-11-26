@@ -532,23 +532,32 @@ struct ContentView: View {
 
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var selection = 0
+
     var body: some View {
-        TabView {
 
-            TrackingView()
-                .tabItem {
-                    Label("Tracking", systemImage: "faceid")
-                }
+        VStack(spacing: 0) {
 
-            HeadphonesView()
-                .tabItem {
-                    Label("Auriculares", systemImage: "headphones")
-                }
+            ZStack {
 
-            DashboardView()
-                .tabItem {
-                    Label("Dashboard", systemImage: "speedometer")
-                }
+                // La vista de tracking NO se desmonta nunca: se queda siempre
+                // debajo y el resto de pestañas se dibujan encima. Así ARKit
+                // sigue enviando la pose aunque estés en el Dashboard.
+                TrackingView()
+
+                HeadphonesView()
+                    .background(Color.black)
+                    .opacity(selection == 1 ? 1 : 0)
+                    .allowsHitTesting(selection == 1)
+
+                DashboardView()
+                    .background(Color.black)
+                    .opacity(selection == 2 ? 1 : 0)
+                    .allowsHitTesting(selection == 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            tabBar
         }
         .onAppear {
             PCDiscovery.shared.start()
@@ -558,6 +567,45 @@ struct ContentView: View {
                 PCDiscovery.shared.restart()
             }
         }
+    }
+
+    // MARK: - Barra de pestañas
+
+    private var tabBar: some View {
+
+        HStack(spacing: 0) {
+            tabButton(index: 0, title: "Tracking", icon: "faceid")
+            tabButton(index: 1, title: "Auriculares", icon: "headphones")
+            tabButton(index: 2, title: "Dashboard", icon: "speedometer")
+        }
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+
+    private func tabButton(
+        index: Int,
+        title: String,
+        icon: String
+    ) -> some View {
+
+        Button {
+            selection = index
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .regular))
+
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 2)
+            .foregroundStyle(
+                selection == index ? Color.blue : Color.secondary
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
