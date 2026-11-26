@@ -1,13 +1,14 @@
+cat > .github/workflows/build.yml << 'EOF'
 name: Build iOS App
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # Permite lanzarlo manualmente desde GitHub
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-latest # Usa un servidor macOS gratuito de GitHub
+    runs-on: macos-latest
 
     steps:
       - name: Checkout del código
@@ -15,6 +16,9 @@ jobs:
 
       - name: Seleccionar versión de Xcode
         run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Listar schemes disponibles (diagnóstico)
+        run: xcodebuild -list -project Simtrack.xcodeproj
 
       - name: Compilar la app (sin firmar)
         run: |
@@ -39,3 +43,4 @@ jobs:
         with:
           name: Simtrack-unsigned-ipa
           path: Simtrack-unsigned.ipa
+EOF
